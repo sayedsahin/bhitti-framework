@@ -1,16 +1,14 @@
 {
     "name": "bhitti/framework",
-    "description": "A lightweight, high-performance PHP framework.",
+    "description": "A lightweight, simple and performance-first PHP framework.",
     "type": "project",
     "license": "MIT",
     "autoload": {
         "psr-4": {
-            "Bhitti\\": "src/Bhitti/",
-            "App\\": "app/"
+            "Bhitti\\": "src/Bhitti/"
         },
         "files": [
-            "src/Bhitti/Supports/helper.php",
-            "app/Helpers/common.php"
+            "src/Bhitti/Supports/helper.php"
         ]
     },
     "require": {

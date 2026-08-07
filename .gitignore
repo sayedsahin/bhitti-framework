@@ -1,10 +1,13 @@
-*.mp3
-*.pdf
-*.zip
-*.ini
-*.sqlite
-.env
-# /public
-/storage/cache/**/*
-!.gitkeep
+.DS_Store
+.phpunit.result.cache
+/tests/*.coverage
+/tests/**/*.coverage
+/.fleet
+/.idea
+/.phpunit.cache
+/phpunit.xml
+/.vscode
 /vendor
+composer.phar
+composer.lock
+Thumbs.db
