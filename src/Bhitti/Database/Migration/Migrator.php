@@ -46,8 +46,6 @@ final class Migrator
         return $this->withLock(fn (): array => $this->withSchema(function (): array {
             $files = $this->loader->files();
             $ran = $this->repository->all();
-            $this->assertHistoryFilesExist($files, $ran);
-            $this->assertExecutedFilesUnchanged($files, $ran);
 
             $pending = array_diff_key($files, $ran);
 
@@ -225,38 +223,6 @@ final class Migrator
             return $callback();
         } finally {
             Schema::clearManager();
-        }
-    }
-
-    /**
-     * @param array<string, string> $files
-     * @param array<string, array{migration: string, batch: int, checksum: string, executed_at: string}> $ran
-     */
-    private function assertHistoryFilesExist(array $files, array $ran): void
-    {
-        $missing = array_diff_key($ran, $files);
-
-        if ($missing !== []) {
-            throw new RuntimeException(
-                'Executed migration files are missing: ' . implode(', ', array_keys($missing))
-            );
-        }
-    }
-
-    /**
-     * @param array<string, string> $files
-     * @param array<string, array{migration: string, batch: int, checksum: string, executed_at: string}> $ran
-     */
-    private function assertExecutedFilesUnchanged(array $files, array $ran): void
-    {
-        foreach ($ran as $name => $record) {
-            $checksum = $this->loader->checksum($files[$name]);
-
-            if (!hash_equals($record['checksum'], $checksum)) {
-                throw new RuntimeException(
-                    "Executed migration [{$name}] has been modified. Create a new migration instead."
-                );
-            }
         }
     }
 

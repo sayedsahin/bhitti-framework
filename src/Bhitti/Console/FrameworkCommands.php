@@ -10,6 +10,8 @@ use Bhitti\Console\Commands\MakeMigrationCommand;
 use Bhitti\Console\Commands\MigrateCommand;
 use Bhitti\Console\Commands\MigrateRollbackCommand;
 use Bhitti\Console\Commands\MigrateStatusCommand;
+use Bhitti\Console\Commands\MigrationAlterCommand;
+use Bhitti\Console\Commands\MigrationCreateCommand;
 use Bhitti\Console\Commands\RouteCacheCommand;
 
 final class FrameworkCommands
@@ -17,9 +19,13 @@ final class FrameworkCommands
     public static function all(): array
     {
         return [
-            'make:migration' => [
-                'class' => MakeMigrationCommand::class,
+            'migrate:create' => [
+                'class' => MigrationCreateCommand::class,
                 'description' => 'Create a new migration file.',
+            ],
+            'migrate:alter' => [
+                'class' => MigrationAlterCommand::class,
+                'description' => 'Update migration table.',
             ],
 
             'migrate' => [
