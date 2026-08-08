@@ -9,6 +9,7 @@ use App\Supports\Flash;
 use Bhitti\Database\DB;
 use Bhitti\Http\Request;
 use Bhitti\Http\Response;
+use Bhitti\View\View;
 
 if (!function_exists('cache')) {
     function cache(): Cache
@@ -109,21 +110,7 @@ if (!function_exists('response')) {
 if (!function_exists('view')) {
     function view(string $view, array $data = []): void
     {
-        $path = view_path($view);
-
-        if (!is_file($path)) {
-            throw new RuntimeException("View not found: {$view}");
-        }
-
-        extract($data, EXTR_SKIP);
-        require $path;
-    }
-}
-
-if (!function_exists('view_path')) {
-    function view_path(string $view): string
-    {
-        return ROOT_PATH . '/resources/views/' . str_replace('.', '/', $view) . '.view.php';
+        echo (new \Bhitti\View\View())->render($view, $data);
     }
 }
 
@@ -131,14 +118,6 @@ if (!function_exists('e')) {
     function e(mixed $value): string
     {
         return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8');
-    }
-}
-
-// another framework like {!! !!}
-if (!function_exists('raw')) {
-    function raw(mixed $value): string
-    {
-        return (string) $value;
     }
 }
 
@@ -153,22 +132,6 @@ if (!function_exists('csrf_token')) {
         }
 
         return $token;
-    }
-}
-
-if (!function_exists('csrf_field')) {
-    function csrf_field(): string
-    {
-        return '<input type="hidden" name="_csrf" value="' . e(csrf_token()) . '">';
-    }
-}
-
-
-if (!function_exists('flash')) {
-
-    function flash(): string
-    {
-        return Flash::render();
     }
 }
 
