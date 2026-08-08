@@ -5,7 +5,6 @@ use Bhitti\Database\Database;
 use Bhitti\Session\Session;
 use Bhitti\Config\Config;
 use Bhitti\Config\Environment;
-use App\Supports\Flash;
 use Bhitti\Database\DB;
 use Bhitti\Http\Request;
 use Bhitti\Http\Response;
@@ -110,7 +109,7 @@ if (!function_exists('response')) {
 if (!function_exists('view')) {
     function view(string $view, array $data = []): void
     {
-        echo (new \Bhitti\View\View())->render($view, $data);
+        echo (new View())->render($view, $data);
     }
 }
 
