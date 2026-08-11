@@ -150,20 +150,24 @@ if (!function_exists('is_api_request')) {
 }
 
 if (!function_exists('pr')) {
-    function pr(mixed $array)
+    function pr(mixed ...$values): void
     {
         echo "<pre>";
-        print_r($array);
+        foreach ($values as $value) {
+            print_r($value);
+        }
         echo "</pre>";
     }
 }
 
 if (!function_exists('dd')) {
-    function dd(mixed $array)
+    function dd(mixed ...$values): never
     {
-        echo "<pre>";
-        var_dump($array);
-        echo "</pre>";
+        echo '<pre style="background:#111;color:#0f0;padding:15px">';
+        foreach ($values as $value) {
+            var_dump($value);
+        }
+        echo '</pre>';
         exit;
     }
 }

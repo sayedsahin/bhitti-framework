@@ -7,6 +7,7 @@ namespace Bhitti\Session\Drivers;
 use Bhitti\Http\TrustedProxy;
 use Bhitti\Session\SessionAccess;
 use Bhitti\Session\SessionInterface;
+use Bhitti\Connector\RedisConnectionManager;
 use Redis;
 use RedisException;
 use RuntimeException;
@@ -15,6 +16,7 @@ use Throwable;
 final class RedisSession implements SessionInterface
 {
     private ?Redis $redis = null;
+
 
     private bool $loaded = false;
 
@@ -25,7 +27,7 @@ final class RedisSession implements SessionInterface
 
     public function __construct(
         private readonly array $sessionConfig,
-        private readonly array $redisConfig
+        private readonly string $connection = 'default'
     ) {
     }
 
@@ -237,58 +239,9 @@ final class RedisSession implements SessionInterface
 
     private function redis(): Redis
     {
-        if ($this->redis !== null) {
-            return $this->redis;
-        }
-
-        if (!class_exists(Redis::class)) {
-            throw new RuntimeException(
-                'Redis session driver requires the PHP Redis extension.'
-            );
-        }
-
-        $redis = new Redis();
-        $host = $this->redisConfig['host'];
-        $port = $this->redisConfig['port'];
-        $timeout = $this->redisConfig['timeout'];
-        $readTimeout = $this->redisConfig['read_timeout'];
-
-        try {
-            if (!$redis->connect($host, $port, $timeout)) {
-                throw new RuntimeException(
-                    "Unable to connect to Redis at {$host}:{$port}."
-                );
-            }
-
-            if (defined('Redis::OPT_READ_TIMEOUT')) {
-                $redis->setOption(Redis::OPT_READ_TIMEOUT, $readTimeout);
-            }
-
-            $username = $this->redisConfig['username'] ?? null;
-            $password = $this->redisConfig['password'] ?? null;
-
-            if ($password !== null && $password !== '') {
-                $credentials = $username !== null && $username !== ''
-                    ? [$username, $password]
-                    : $password;
-
-                if (!$redis->auth($credentials)) {
-                    throw new RuntimeException('Redis authentication failed.');
-                }
-            }
-
-            $database = (int) ($this->redisConfig['session_db'] ?? 0);
-
-            if (!$redis->select($database)) {
-                throw new RuntimeException(
-                    "Unable to select Redis database {$database}."
-                );
-            }
-        } catch (RedisException $exception) {
-            throw $this->connectionException($exception);
-        }
-
-        return $this->redis = $redis;
+        return $this->redis ??= RedisConnectionManager::connection(
+            $this->connection
+        );
     }
 
     private function acquireLock(string $id): void

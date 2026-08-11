@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Bhitti\RateLimit\RateLimitDriver;
 
 use Bhitti\RateLimit\RateLimitResult;
+use Bhitti\Connector\RedisConnectionManager;
 use Redis;
 use RedisException;
 use RuntimeException;
@@ -28,70 +29,18 @@ end
 return {current, ttl}
 LUA;
 
-    private Redis $redis;
+    private ?Redis $redis = null;
 
-    public function __construct()
+    public function __construct(
+        private readonly string $connection = 'default'
+    ) {
+    }
+
+    private function redis(): Redis
     {
-        if (!class_exists(Redis::class)) {
-            throw new RuntimeException(
-                'PHP Redis extension is not installed.'
-            );
-        }
-
-        $this->redis = new Redis();
-        $redis_config = config('database.redis');
-        $host = $redis_config['host'];
-        $port = $redis_config['port'];
-        $timeout = $redis_config['timeout'];
-        $readTimeout = $redis_config['read_timeout'];
-
-        try {
-            if (!$this->redis->connect($host, $port, $timeout)) {
-                throw new RuntimeException(
-                    "Unable to connect to Redis at {$host}:{$port}."
-                );
-            }
-
-            if (defined('Redis::OPT_READ_TIMEOUT')) {
-                $this->redis->setOption(
-                    Redis::OPT_READ_TIMEOUT,
-                    $readTimeout
-                );
-            }
-
-            $username = $redis_config['username'];
-            $password = $redis_config['password'];
-
-            if ($password !== null && $password !== '') {
-                $credentials = (
-                    $username !== null
-                    && $username !== ''
-                )
-                    ? [(string) $username, (string) $password]
-                    : (string) $password;
-
-                if (!$this->redis->auth($credentials)) {
-                    throw new RuntimeException(
-                        'Redis authentication failed.'
-                    );
-                }
-            }
-
-            $database = $redis_config['rate_limit_db'];
-
-            if (!$this->redis->select($database)) {
-                throw new RuntimeException(
-                    "Unable to select Redis database {$database}."
-                );
-            }
-        } catch (RedisException $exception) {
-            throw new RuntimeException(
-                'Redis connection failed: '
-                . $exception->getMessage(),
-                0,
-                $exception
-            );
-        }
+        return $this->redis ??= RedisConnectionManager::connection(
+            $this->connection
+        );
     }
 
     public function hit(
@@ -100,7 +49,7 @@ LUA;
         int $windowSeconds
     ): RateLimitResult {
         try {
-            $result = $this->redis->eval(
+            $result = $this->redis()->eval(
                 self::HIT_SCRIPT,
                 [$key, (string) $windowSeconds],
                 1
@@ -140,7 +89,7 @@ LUA;
     public function clear(string $key): void
     {
         try {
-            $this->redis->del($key);
+            $this->redis()->del($key);
         } catch (RedisException $exception) {
             throw new RuntimeException(
                 'Unable to clear Redis rate-limit counter.',

@@ -58,7 +58,7 @@ final class RateLimiter
         return match ($driver) {
             'file' => new FileDriver(),
             'apcu' => new ApcuDriver(),
-            'redis' => new RedisDriver(),
+            'redis' => new RedisDriver(config('rate_limit.redis.connection')),
             'memcached' => new MemcachedDriver(),
             default => throw new RuntimeException(
                 "Unsupported rate-limit driver: {$driver}"

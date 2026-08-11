@@ -5,70 +5,24 @@ declare(strict_types=1);
 namespace Bhitti\Cache\Drivers;
 
 use Bhitti\Cache\CacheInterface;
+use Bhitti\Connector\RedisConnectionManager;
 use Redis;
-use RuntimeException;
 
 final class RedisCache implements CacheInterface
 {
     private ?Redis $redis = null;
-    private array $config;
-    private string $prefix;
 
-    public function __construct(array $config, string $prefix = 'bhitti:cache:')
-    {
-        $this->config = $config;
-        $this->prefix = $prefix;
+    public function __construct(
+        private readonly string $connection = 'default',
+        private readonly string $prefix = 'bhitti:cache:'
+    ) {
     }
 
     private function redis(): Redis
     {
-        if ($this->redis !== null) {
-            return $this->redis;
-        }
-
-        $redis = new Redis();
-
-        $host = $this->config['host'];
-        $port = $this->config['port'];
-        $timeout = $this->config['timeout'];
-        $readTimeout = $this->config['read_timeout'];
-
-        try {
-            if (!$redis->connect($host, $port, $timeout)) {
-                throw new RuntimeException("Unable to connect to Redis at {$host}:{$port}.");
-            }
-
-            if (defined('Redis::OPT_READ_TIMEOUT')) {
-                $redis->setOption(Redis::OPT_READ_TIMEOUT, $readTimeout);
-            }
-
-            $username = $this->config['username'] ?? null;
-            $password = $this->config['password'] ?? null;
-
-            if ($password !== null && $password !== '') {
-                $credentials = $username !== null && $username !== ''
-                    ? [(string) $username, (string) $password]
-                    : (string) $password;
-
-                if (!$redis->auth($credentials)) {
-                    throw new RuntimeException('Redis authentication failed.');
-                }
-            }
-
-            $database = $this->config['cache_db'];
-
-            if (!$redis->select($database)) {
-                throw new RuntimeException("Unable to select Redis database {$database}.");
-            }
-        } catch (\RedisException $exception) {
-            throw new RuntimeException(
-                'Redis cache connection failed: ' . $exception->getMessage(),
-                0,
-                $exception
-            );
-        }
-
-        return $this->redis = $redis;
+        return $this->redis ??= RedisConnectionManager::connection(
+            $this->connection
+        );
     }
 
     private function key(string $key): string
@@ -115,18 +69,19 @@ final class RedisCache implements CacheInterface
 
     public function flush(): void
     {
-        // ⚠️ Safe flush (prefix-based, not full DB wipe)
-
+        /* Prefix-safe flush: never FLUSHDB a shared Redis connection. */
         $redis = $this->redis();
-        $prefix = $this->prefix;
-
         $iterator = null;
 
         do {
-            $keys = $redis->scan($iterator, $prefix . '*', 100);
+            $keys = $redis->scan($iterator, $this->prefix . '*', 100);
 
             if (is_array($keys) && $keys !== []) {
-                $redis->del($keys);
+                if (method_exists($redis, 'unlink')) {
+                    $redis->unlink($keys);
+                } else {
+                    $redis->del($keys);
+                }
             }
         } while ($iterator !== 0 && $iterator !== '0');
     }

@@ -16,16 +16,9 @@ final class SessionManager
     {
         $driverName = $config['driver'] ?? 'native';
 
-        /*
-         * IMPORTANT:
-         * configure() only creates/configures the driver object.
-         * It does NOT start a PHP session and Redis/Memcached constructors do
-         * NOT connect to their backend here. Actual session I/O stays lazy and
-         * begins only on the first Session::get()/set()/etc. operation.
-         */
         $driver = match ($driverName) {
             'native' => new NativeSession($config),
-            'redis' => new RedisSession($config, config('database.redis')),
+            'redis' => new RedisSession($config, $config['redis']['connection']),
             'memcached' => new MemcachedSession($config, config('database.memcached')),
             'null' => new NullSession($config),
 

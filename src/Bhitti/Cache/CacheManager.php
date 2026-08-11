@@ -22,7 +22,10 @@ final class CacheManager
                 'array' => new ArrayCache(),
                 'apcu' => new ApcuCache($config['prefix']),
                 'file' => new FileCache($config['path']),
-                'redis' => new RedisCache(config('database.redis'), $config['prefix']),
+                'redis' => new RedisCache(
+                    (string) ($config['redis']['connection'] ?? 'default'),
+                    (string) ($config['prefix'] ?? 'bhitti:cache:')
+                ),
                 'memcached' => new MemcachedCache(config('database.memcached'), $config['prefix']),
 
                 default => throw new RuntimeException(
