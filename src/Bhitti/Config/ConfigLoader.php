@@ -11,7 +11,6 @@ final class ConfigLoader
 {
     private const IGNORED_FILES = [
         'routes.php',
-        'middleware.php',
         'commands.php',
     ];
 
@@ -71,9 +70,14 @@ final class ConfigLoader
             . 'declare(strict_types=1);' . PHP_EOL . PHP_EOL
             . 'return ' . var_export($items, true) . ';' . PHP_EOL;
 
-        $tmpFile = $cacheFile . '.tmp';
+        $tmpFile = tempnam($directory, basename($cacheFile) . '.');
+
+        if ($tmpFile === false) {
+            throw new RuntimeException('Unable to create temporary config cache file.');
+        }
 
         if (file_put_contents($tmpFile, $content, LOCK_EX) === false) {
+            @unlink($tmpFile);
             throw new RuntimeException("Unable to write config cache file: {$tmpFile}");
         }
 

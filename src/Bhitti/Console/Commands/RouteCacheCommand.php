@@ -41,6 +41,7 @@ final class RouteCacheCommand extends MigrationCommand
             $output->line("  Size: " . number_format(filesize($cacheFile), 0) . " bytes");
         } else {
             $output->warning("Failed to generate route cache");
+            return 1;
         }
 
         return 0;

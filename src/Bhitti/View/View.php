@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Bhitti\View;
 
-use App\Supports\Flash;
 use RuntimeException;
 use Throwable;
 
@@ -83,7 +82,7 @@ final class View
             ?? $default;
     }
 
-    public function e(string $value): string
+    public function e(mixed $value): string
     {
         return e($value);
     }
@@ -91,11 +90,6 @@ final class View
     public function csrfField(): string
     {
         return '<input type="hidden" name="_csrf" value="' . $this->e(csrf_token()) . '">';
-    }
-
-    public function flash(): string
-    {
-        return Flash::render();
     }
 
     private function path(string $view): string
@@ -117,20 +111,25 @@ final class View
 
     private function evaluate(string $path, array $data): string
     {
+        $level = ob_get_level();
+
         ob_start();
 
         try {
             extract($data, EXTR_SKIP);
-
-            /*
-             * Because require happens inside this instance method,
-             * `$this` is available inside the .view.php file.
-             */
             require $path;
+
+            if (ob_get_level() !== $level + 1) {
+                throw new RuntimeException(
+                    "Unclosed section while rendering [{$path}]."
+                );
+            }
 
             return (string) ob_get_clean();
         } catch (Throwable $exception) {
-            ob_end_clean();
+            while (ob_get_level() > $level) {
+                ob_end_clean();
+            }
 
             throw $exception;
         }

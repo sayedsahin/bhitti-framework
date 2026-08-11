@@ -35,7 +35,7 @@ abstract class MigrationCommand implements CommandInterface
         string $operation
     ): void {
         if (
-            config('app.env') === 'production'
+            config('app.debug') === false
             && !$input->hasOption('force')
         ) {
             throw new RuntimeException(

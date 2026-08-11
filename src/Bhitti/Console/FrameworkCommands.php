@@ -6,7 +6,6 @@ namespace Bhitti\Console;
 
 use Bhitti\Console\Commands\CacheClearCommand;
 use Bhitti\Console\Commands\ConfigCacheCommand;
-use Bhitti\Console\Commands\MakeMigrationCommand;
 use Bhitti\Console\Commands\MigrateCommand;
 use Bhitti\Console\Commands\MigrateRollbackCommand;
 use Bhitti\Console\Commands\MigrateStatusCommand;

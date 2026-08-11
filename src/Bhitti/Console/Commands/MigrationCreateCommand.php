@@ -23,7 +23,7 @@ final class MigrationCreateCommand implements CommandInterface
 
         if ($table === '') {
             throw new InvalidArgumentException(
-                'Usage: php run migration:create table [--path=path]'
+                'Usage: php run migrate:create table [--path=path]'
             );
         }
 
@@ -33,7 +33,7 @@ final class MigrationCreateCommand implements CommandInterface
         );
 
         $output->success(
-            "Created migration: {$migration['filename']}"
+            "Created migrate: {$migration['filename']}"
         );
         $output->line("Path: {$migration['path']}");
 

@@ -154,7 +154,7 @@ final class CacheClearCommand extends MigrationCommand
         if ($failures !== []) {
             $output->warning('Cache clear completed with errors.' . implode("\n- ", $failures));
 
-            return 0;
+            return 1;
         }
 
         return 0;

@@ -30,10 +30,10 @@ final class Kernel
             );
         }
 
-        $middleware = require ROOT_PATH . '/config/middleware.php';
+        $config = (array) config('middleware', []);
 
-        $this->middleware->web($middleware['web'] ?? []);
-        $this->middleware->api($middleware['api'] ?? []);
+        $this->middleware->web($config['web'] ?? []);
+        $this->middleware->api($config['api'] ?? []);
 
         $middlewareResponse = $this->middleware->handleGlobal($isApi);
 
