@@ -18,6 +18,7 @@ final class Session
         if (!isset(self::$driver)) {
             throw new \RuntimeException('Session driver not initialized');
         }
+
         return self::$driver;
     }
 
@@ -26,39 +27,48 @@ final class Session
         self::$driver = $driver;
     }
 
-    public static function start(): void
-    {
-        self::driver()->start();
-    }
 
     public static function get(string $key, mixed $default = null): mixed
     {
-        return self::driver()->get($key, $default);
+        $driver = self::driver();
+        $driver->start(SessionAccess::READ);
+
+        return $driver->get($key, $default);
     }
 
     public static function set(string $key, mixed $value): void
     {
-        self::driver()->set($key, $value);
+        $driver = self::driver();
+        $driver->start(SessionAccess::WRITE);
+        $driver->set($key, $value);
     }
 
     public static function forget(string $key): void
     {
-        self::driver()->forget($key);
-    }
-
-    public static function regenerate(): void
-    {
-        self::driver()->regenerate();
-    }
-
-    public static function destroy(): void
-    {
-        self::driver()->destroy();
+        $driver = self::driver();
+        $driver->start(SessionAccess::WRITE);
+        $driver->forget($key);
     }
 
     public static function flush(): void
     {
-        self::driver()->flush();
+        $driver = self::driver();
+        $driver->start(SessionAccess::WRITE);
+        $driver->flush();
+    }
+
+    public static function regenerate(): void
+    {
+        $driver = self::driver();
+        $driver->start(SessionAccess::WRITE);
+        $driver->regenerate();
+    }
+
+    public static function destroy(): void
+    {
+        $driver = self::driver();
+        $driver->start(SessionAccess::WRITE);
+        $driver->destroy();
     }
 
     public static function close(): void

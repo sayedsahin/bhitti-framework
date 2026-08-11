@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Bhitti\Session\Drivers;
 
 use Bhitti\Http\TrustedProxy;
+use Bhitti\Session\SessionAccess;
 use Bhitti\Session\SessionInterface;
 use Redis;
 use RedisException;
@@ -14,8 +15,11 @@ use Throwable;
 final class RedisSession implements SessionInterface
 {
     private ?Redis $redis = null;
-    private bool $started = false;
+
+    private bool $loaded = false;
+
     private bool $handlerRegistered = false;
+    private ?SessionAccess $openingAccess = null;
     private ?string $lockedSessionId = null;
     private ?string $lockToken = null;
 
@@ -25,42 +29,50 @@ final class RedisSession implements SessionInterface
     ) {
     }
 
-    public function start(): void
+    public function start(SessionAccess $access): void
     {
-        if ($this->started && session_status() === PHP_SESSION_ACTIVE) {
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            $this->loaded = true;
             return;
         }
 
-        if (session_status() === PHP_SESSION_ACTIVE) {
-            $this->started = true;
+        /*
+         * A previous READ already populated $_SESSION and released the lock.
+         * Repeated reads stay in memory and do not hit Redis again.
+         */
+        if ($access === SessionAccess::READ && $this->loaded) {
             return;
         }
 
         $this->registerHandler();
 
-        $name = $this->sessionConfig['name'];
+        $name = (string) ($this->sessionConfig['name'] ?? 'BHITTISESSID');
 
         if ($name !== '') {
             session_name($name);
         }
 
-        $started = session_start([
-            'use_strict_mode' => 1,
-            'use_only_cookies' => 1,
-            'cookie_lifetime' => 0,
-            'cookie_path' => $this->sessionConfig['path'],
-            'cookie_domain' => $this->sessionConfig['domain'],
-            'cookie_httponly' => true,
-            'cookie_secure' => $this->sessionConfig['secure'] && TrustedProxy::isSecureRequest($_SERVER),
-            'cookie_samesite' => $this->sessionConfig['samesite'],
-            'gc_maxlifetime' => $this->lifetime(),
-        ]);
+        $options = $this->options();
 
-        if (!$started) {
-            throw new RuntimeException('Unable to start Redis session.');
+        if ($access === SessionAccess::READ) {
+            $options['read_and_close'] = true;
         }
 
-        $this->started = true;
+        /*
+         * readSession() uses this flag to decide whether an exclusive lock is
+         * required. Pure READ access does not take the Redis session lock.
+         */
+        $this->openingAccess = $access;
+
+        try {
+            if (!session_start($options)) {
+                throw new RuntimeException('Unable to start Redis session.');
+            }
+        } finally {
+            $this->openingAccess = null;
+        }
+
+        $this->loaded = true;
     }
 
     public function get(string $key, mixed $default = null): mixed
@@ -70,26 +82,21 @@ final class RedisSession implements SessionInterface
 
     public function set(string $key, mixed $value): void
     {
-        $this->start();
         $_SESSION[$key] = $value;
     }
 
     public function forget(string $key): void
     {
-        $this->start();
         unset($_SESSION[$key]);
     }
 
     public function flush(): void
     {
-        $this->start();
         $_SESSION = [];
     }
 
     public function regenerate(): void
     {
-        $this->start();
-
         if (!session_regenerate_id(true)) {
             throw new RuntimeException('Unable to regenerate Redis session ID.');
         }
@@ -97,7 +104,6 @@ final class RedisSession implements SessionInterface
 
     public function destroy(): void
     {
-        $this->start();
         $_SESSION = [];
 
         if (ini_get('session.use_cookies')) {
@@ -113,21 +119,25 @@ final class RedisSession implements SessionInterface
             ]);
         }
 
-        session_destroy();
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_destroy();
+        }
+
         $this->releaseLock();
-        $this->started = false;
+        $this->loaded = false;
     }
 
     public function close(): void
     {
-        if (session_status() !== PHP_SESSION_ACTIVE) {
+
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_write_close();
+        } else {
+            /* Safety for a custom-handler failure path. */
             $this->releaseLock();
-            $this->started = false;
-            return;
         }
 
-        session_write_close();
-        $this->started = false;
+        /* Keep loaded data available for repeated reads in this request. */
     }
 
     private function registerHandler(): void
@@ -137,7 +147,7 @@ final class RedisSession implements SessionInterface
         }
 
         $registered = session_set_save_handler(
-            fn(string $savePath, string $sessionName): bool => true,
+            static fn(string $savePath, string $sessionName): bool => true,
             function (): bool {
                 $this->releaseLock();
                 return true;
@@ -145,7 +155,10 @@ final class RedisSession implements SessionInterface
             fn(string $id): string => $this->readSession($id),
             fn(string $id, string $data): bool => $this->writeSession($id, $data),
             fn(string $id): bool => $this->destroySession($id),
-            fn(int $maxLifetime): int => 0
+            static fn(int $maxLifetime): int => 0,
+            null,
+            fn(string $id): bool => $this->validateSessionId($id),
+            fn(string $id, string $data): bool => $this->updateTimestamp($id, $data)
         );
 
         if (!$registered) {
@@ -157,7 +170,9 @@ final class RedisSession implements SessionInterface
 
     private function readSession(string $id): string
     {
-        $this->acquireLock($id);
+        if ($this->openingAccess === SessionAccess::WRITE) {
+            $this->acquireLock($id);
+        }
 
         try {
             $value = $this->redis()->get($this->sessionKey($id));
@@ -262,8 +277,7 @@ final class RedisSession implements SessionInterface
                 }
             }
 
-            $database = $this->redisConfig['session_db'];
-
+            $database = (int) ($this->redisConfig['session_db'] ?? 0);
 
             if (!$redis->select($database)) {
                 throw new RuntimeException(
@@ -279,8 +293,7 @@ final class RedisSession implements SessionInterface
 
     private function acquireLock(string $id): void
     {
-
-        if (!$this->sessionConfig['lock']) {
+        if (!($this->sessionConfig['lock'] ?? true)) {
             return;
         }
 
@@ -291,9 +304,9 @@ final class RedisSession implements SessionInterface
         $redis = $this->redis();
         $lockKey = $this->lockKey($id);
         $token = bin2hex(random_bytes(16));
-        $ttl = max(1000, $this->sessionConfig['lock_ttl'] * 1000);
-        $wait = max(0.0, $this->sessionConfig['lock_wait'] ?? 2.0);
-        $sleep = max(1000, ($this->sessionConfig['lock_sleep'] ?? 20000));
+        $ttl = max(1000, (int) ($this->sessionConfig['lock_ttl'] ?? 10) * 1000);
+        $wait = max(0.0, (float) ($this->sessionConfig['lock_wait'] ?? 2.0));
+        $sleep = max(1000, (int) ($this->sessionConfig['lock_sleep'] ?? 20000));
         $deadline = microtime(true) + $wait;
 
         do {
@@ -319,9 +332,7 @@ final class RedisSession implements SessionInterface
             usleep($sleep);
         } while (microtime(true) < $deadline);
 
-        throw new RuntimeException(
-            'Unable to acquire Redis session lock.'
-        );
+        throw new RuntimeException('Unable to acquire Redis session lock.');
     }
 
     private function releaseLock(): void
@@ -356,6 +367,22 @@ LUA,
         }
     }
 
+    private function options(): array
+    {
+        return [
+            'use_strict_mode' => 1,
+            'use_only_cookies' => 1,
+            'cookie_lifetime' => 0,
+            'cookie_path' => (string) ($this->sessionConfig['path'] ?? '/'),
+            'cookie_domain' => (string) ($this->sessionConfig['domain'] ?? ''),
+            'cookie_httponly' => (bool) ($this->sessionConfig['httponly'] ?? true),
+            'cookie_secure' => (bool) ($this->sessionConfig['secure'] ?? false)
+                && TrustedProxy::isSecureRequest($_SERVER),
+            'cookie_samesite' => (string) ($this->sessionConfig['samesite'] ?? 'Lax'),
+            'gc_maxlifetime' => $this->lifetime(),
+        ];
+    }
+
     private function sessionKey(string $id): string
     {
         return $this->prefix() . $id;
@@ -368,7 +395,7 @@ LUA,
 
     private function prefix(): string
     {
-        return $this->sessionConfig['prefix'] ?? 'bhitti:session:';
+        return (string) ($this->sessionConfig['prefix'] ?? 'bhitti:session:');
     }
 
     private function lifetime(): int

@@ -25,9 +25,10 @@ final class Kernel
         $isApi = $request->isApi();
 
         if (!$isApi) {
-            SessionManager::configure(
-                (array) config('session', [])
-            );
+            $sessionConfig = (array) config('session', []);
+            if ($sessionConfig['enabled']) {
+                SessionManager::configure($sessionConfig);
+            }
         }
 
         $config = (array) config('middleware', []);
