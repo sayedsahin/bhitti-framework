@@ -29,6 +29,8 @@ end
 return {current, ttl}
 LUA;
 
+    private static ?string $hitScriptSha = null;
+
     private ?Redis $redis = null;
 
     public function __construct(
@@ -49,10 +51,10 @@ LUA;
         int $windowSeconds
     ): RateLimitResult {
         try {
-            $result = $this->redis()->eval(
-                self::HIT_SCRIPT,
-                [$key, (string) $windowSeconds],
-                1
+            $result = $this->executeHitScript(
+                $this->redis(),
+                $key,
+                $windowSeconds
             );
         } catch (RedisException $exception) {
             throw new RuntimeException(
@@ -83,6 +85,41 @@ LUA;
             $maxAttempts,
             $now + $ttl,
             $now
+        );
+    }
+
+    /**
+     * Execute the fixed-window hit script by SHA for the normal fast path.
+     *
+     * Redis may lose its script cache after a restart or SCRIPT FLUSH.
+     * PhpRedis can return false for a missing SHA, so load the script once
+     * and retry with EVALSHA instead of falling back to EVAL on every hit.
+     */
+    private function executeHitScript(Redis $redis, string $key, int $windowSeconds): mixed
+    {
+        $sha = self::$hitScriptSha ??= sha1(self::HIT_SCRIPT);
+        $arguments = [$key, (string) $windowSeconds];
+
+        $result = $redis->evalSha($sha, $arguments, 1);
+
+        if ($result !== false) {
+            return $result;
+        }
+
+        $loadedSha = $redis->script('load', self::HIT_SCRIPT);
+
+        if (!is_string($loadedSha) || $loadedSha === '') {
+            throw new RuntimeException(
+                'Unable to load Redis rate-limit script.'
+            );
+        }
+
+        self::$hitScriptSha = $loadedSha;
+
+        return $redis->evalSha(
+            $loadedSha,
+            $arguments,
+            1
         );
     }
 
