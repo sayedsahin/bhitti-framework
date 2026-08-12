@@ -92,10 +92,9 @@ class Container
         }
 
         /*
-         * ReflectionClass already validates that the
-         * class/interface exists, so separate class_exists()
-         * and interface_exists() checks are unnecessary.
-         */
+        * Reflection itself validates class/interface existence.
+        * No separate class_exists()/interface_exists() hot-path checks.
+        */
         try {
             $reflector = self::$reflectionCache[$concrete]
                 ??= new ReflectionClass($concrete);
@@ -115,6 +114,9 @@ class Container
 
         $constructor = $reflector->getConstructor();
 
+        /*
+        * Fast path for classes without constructors.
+        */
         if ($constructor === null) {
             return new $concrete();
         }
@@ -123,63 +125,70 @@ class Container
 
         try {
             $dependencies = [];
-
-            /*
-             * Numeric makeWith() positions apply only to
-             * parameters that are not automatically resolved
-             * as class dependencies.
-             */
             $position = 0;
 
             foreach ($constructor->getParameters() as $parameter) {
                 $name = $parameter->getName();
-                $type = $parameter->getType();
-
-                $classTyped = ($type instanceof ReflectionNamedType && !$type->isBuiltin());
 
                 /*
-                 * Named makeWith() override has highest priority.
-                 */
+                * Named makeWith() override has highest priority.
+                */
                 if (array_key_exists($name, $parameters)) {
                     $dependencies[] = $parameters[$name];
 
+                    $type = $parameter->getType();
+
                     /*
-                     * A manually supplied scalar/untyped/union
-                     * parameter consumes its positional slot.
-                     *
-                     * Class dependencies do not.
-                     */
-                    if (!$classTyped) {
+                    * Numeric positions represent only parameters
+                    * that are not automatically class-resolved.
+                    */
+                    if (
+                        !$type instanceof ReflectionNamedType
+                        || $type->isBuiltin()
+                    ) {
                         $position++;
                     }
 
                     continue;
                 }
 
+                $type = $parameter->getType();
+
                 /*
-                 * Single class/interface dependency.
-                 */
-                if ($classTyped) {
+                * Single class/interface dependency.
+                */
+                if ($type instanceof ReflectionNamedType && !$type->isBuiltin()) {
                     $dependency = $type->getName();
 
                     /*
-                     * Explicit binding/singleton always wins.
-                     */
-                    if ($this->has($dependency)) {
+                    * Common hot path:
+                    *
+                    * - explicitly bound dependency
+                    * - required/non-nullable class dependency
+                    *
+                    * Let make() resolve it directly.
+                    * Avoid duplicate Reflection inspection here.
+                    */
+                    if ($this->has($dependency) || !$parameter->allowsNull()) {
                         $dependencies[] = $this->make($dependency);
                         continue;
                     }
 
                     /*
-                     * Use Reflection cache directly instead of
-                     * performing class_exists()/interface_exists()
-                     * checks on every resolution.
-                     */
+                    * Only nullable + unbound dependencies require
+                    * additional inspection.
+                    *
+                    * Example:
+                    * ?LoggerInterface $logger
+                    */
                     try {
                         $dependencyReflector =
                             self::$reflectionCache[$dependency]
                             ??= new ReflectionClass($dependency);
                     } catch (ReflectionException $e) {
+                        /*
+                        * Nullable does not hide a missing/typo type.
+                        */
                         throw new RuntimeException(
                             "Dependency [{$dependency}] "
                             . "for [{$concrete}] does not exist.",
@@ -189,33 +198,25 @@ class Container
                     }
 
                     /*
-                     * Concrete dependency: auto-wire.
-                     */
+                    * Nullable concrete class still gets autowired.
+                    */
                     if ($dependencyReflector->isInstantiable()) {
                         $dependencies[] = $this->make($dependency);
                         continue;
                     }
 
                     /*
-                     * Existing but unbound interface/abstract
-                     * dependency may be optional when nullable.
-                     */
-                    if ($parameter->allowsNull()) {
-                        $dependencies[] = null;
-                        continue;
-                    }
-
-                    throw new RuntimeException(
-                        "Dependency [{$dependency}] "
-                        . "in class [{$concrete}] "
-                        . "is not instantiable and has no binding."
-                    );
+                    * Existing nullable interface/abstract class
+                    * without binding is treated as optional.
+                    */
+                    $dependencies[] = null;
+                    continue;
                 }
 
                 /*
-                 * Numeric makeWith() values apply to the
-                 * non-autowired parameter sequence.
-                 */
+                * Numeric makeWith() arguments apply only to
+                * non-autowired parameters.
+                */
                 $currentPosition = $position++;
 
                 if (array_key_exists($currentPosition, $parameters)) {
@@ -224,9 +225,9 @@ class Container
                 }
 
                 /*
-                 * Union/intersection dependencies are intentionally
-                 * not automatically resolved.
-                 */
+                * Union/intersection types are intentionally
+                * outside Bhitti's automatic DI contract.
+                */
                 if ($type !== null && !$type instanceof ReflectionNamedType) {
                     throw new RuntimeException(
                         "Union/intersection dependency [{$name}] "
