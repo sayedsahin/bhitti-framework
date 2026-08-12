@@ -14,6 +14,7 @@ class Container
     protected array $bindings = [];
     protected array $singletons = [];
     protected static array $reflectionCache = [];
+    protected array $resolving = [];
 
     public function bind(string $abstract, Closure|string|null $concrete = null): void
     {
@@ -83,64 +84,146 @@ class Container
             return $concrete($this, ...$parameters);
         }
 
-        if (!isset(self::$reflectionCache[$concrete])) {
-            self::$reflectionCache[$concrete] = new ReflectionClass($concrete);
-        }
-
-        $reflector = self::$reflectionCache[$concrete];
-
-        if (!$reflector->isInstantiable()) {
+        if (!class_exists($concrete)  && !interface_exists($concrete)) {
             throw new RuntimeException(
-                "Class [{$concrete}] is not instantiable."
+                "Class or interface [{$concrete}] does not exist."
             );
         }
 
-        $constructor = $reflector->getConstructor();
-
-        if ($constructor === null) {
-            return new $concrete();
-        }
-
-        $dependencies = [];
-        $position = 0;
-
-        foreach ($constructor->getParameters() as $parameter) {
-            $name = $parameter->getName();
-
-            if (array_key_exists($name, $parameters)) {
-                $dependencies[] = $parameters[$name];
-                continue;
-            }
-
-            $type = $parameter->getType();
-
-            if ($type instanceof ReflectionNamedType && !$type->isBuiltin()) {
-                $dependencies[] = $this->make($type->getName());
-                continue;
-            }
-
-            if (array_key_exists($position, $parameters)) {
-                $dependencies[] = $parameters[$position];
-                $position++;
-                continue;
-            }
-
-            if ($parameter->isDefaultValueAvailable()) {
-                $dependencies[] = $parameter->getDefaultValue();
-                continue;
-            }
-
-            if ($parameter->allowsNull()) {
-                $dependencies[] = null;
-                continue;
-            }
-
+        if (isset($this->resolving[$concrete])) {
             throw new RuntimeException(
-                "Unresolvable dependency [{$name}] in class [{$concrete}]."
+                "Circular dependency detected while resolving [{$concrete}]."
             );
         }
 
-        return $reflector->newInstanceArgs($dependencies);
+        $this->resolving[$concrete] = true;
+
+        try {
+            $reflector = self::$reflectionCache[$concrete]
+                ??= new ReflectionClass($concrete);
+
+            if (!$reflector->isInstantiable()) {
+                throw new RuntimeException(
+                    "Class [{$concrete}] is not instantiable."
+                );
+            }
+
+            $constructor = $reflector->getConstructor();
+
+            if ($constructor === null) {
+                return new $concrete();
+            }
+
+            $dependencies = [];
+            $position = 0;
+
+            foreach ($constructor->getParameters() as $parameter) {
+                $name = $parameter->getName();
+
+                /*
+                * Named makeWith() override.
+                */
+                if (array_key_exists($name, $parameters)) {
+                    $dependencies[] = $parameters[$name];
+                    continue;
+                }
+
+                $type = $parameter->getType();
+
+                /*
+                * Single class/interface dependency.
+                */
+                if ($type instanceof ReflectionNamedType && !$type->isBuiltin()) {
+                    $dependency = $type->getName();
+
+                    /*
+                    * Explicit binding/singleton.
+                    */
+                    if ($this->has($dependency)) {
+                        $dependencies[] = $this->make($dependency);
+                        continue;
+                    }
+
+                    /*
+                    * Missing dependency type:
+                    * likely typo/programming error.
+                    */
+                    if (!class_exists($dependency) && !interface_exists($dependency)) {
+                        throw new RuntimeException(
+                            "Dependency [{$dependency}] "
+                            . "for [{$concrete}] does not exist."
+                        );
+                    }
+
+                    $dependencyReflector = self::$reflectionCache[$dependency]
+                        ??= new ReflectionClass($dependency);
+
+                    /*
+                    * Concrete class: auto-wire.
+                    */
+                    if ($dependencyReflector->isInstantiable()) {
+                        $dependencies[] = $this->make($dependency);
+                        continue;
+                    }
+
+                    /*
+                    * Optional abstract/interface dependency.
+                    */
+                    if ($parameter->allowsNull()) {
+                        $dependencies[] = null;
+                        continue;
+                    }
+
+                    throw new RuntimeException(
+                        "Dependency [{$dependency}] "
+                        . "in class [{$concrete}] "
+                        . "is not instantiable and has no binding."
+                    );
+                }
+
+                /*
+                * Numeric makeWith() parameters apply only
+                * to non-autowired parameters.
+                */
+                $currentPosition = $position++;
+
+                if (array_key_exists($currentPosition, $parameters)) {
+                    $dependencies[] =  $parameters[$currentPosition];
+                    continue;
+                }
+
+                /*
+                * Union/intersection types are intentionally
+                * not automatically resolved.
+                */
+                if ($type !== null && !$type instanceof ReflectionNamedType) {
+                    throw new RuntimeException(
+                        "Union/intersection dependency [{$name}] "
+                        . "in class [{$concrete}] cannot be autowired. "
+                        . "Provide it using makeWith()."
+                    );
+                }
+
+                if ($parameter->isDefaultValueAvailable()) {
+                    $dependencies[] = $parameter->getDefaultValue();
+                    continue;
+                }
+
+                if ($parameter->allowsNull()) {
+                    $dependencies[] = null;
+                    continue;
+                }
+
+                throw new RuntimeException(
+                    "Unresolvable dependency [{$name}] "
+                    . "in class [{$concrete}]."
+                );
+            }
+
+            return new $concrete(...$dependencies);
+        } finally {
+            unset($this->resolving[$concrete]);
+        }
     }
 
     public function has(string $abstract): bool
