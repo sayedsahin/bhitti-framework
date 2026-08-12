@@ -22,7 +22,7 @@ final class Application
 
     private bool $booted = false;
 
-    public function __construct(private readonly string $basePath)
+    public function __construct()
     {
         $this->container = new Container();
 
