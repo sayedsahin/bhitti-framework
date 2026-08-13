@@ -26,9 +26,12 @@ final class Kernel
 
         if (!$isApi) {
             $sessionConfig = (array) config('session', []);
-            if ($sessionConfig['enabled']) {
-                SessionManager::configure($sessionConfig);
+
+            if (! $sessionConfig['enabled']) {
+                $sessionConfig['driver'] = 'null';
             }
+
+            SessionManager::configure($sessionConfig);
         }
 
         $config = (array) config('middleware', []);

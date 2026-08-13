@@ -124,7 +124,9 @@ final class Application
         Config::load($items);
 
         date_default_timezone_set(config('app.timezone', 'UTC'));
-        define('BASE_URL', config('app.url'));
+        if (!defined('BASE_URL')) {
+            define('BASE_URL', config('app.url'));
+        }
     }
 
     private function loadEnvironment(): void
