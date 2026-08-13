@@ -187,6 +187,8 @@ final class RedisSession implements SessionInterface
 
     private function writeSession(string $id, string $data): bool
     {
+        $this->ensureWriteLock($id);
+
         try {
             return $this->redis()->setex(
                 $this->sessionKey($id),
@@ -200,6 +202,8 @@ final class RedisSession implements SessionInterface
 
     private function destroySession(string $id): bool
     {
+        $this->ensureWriteLock($id);
+
         try {
             $this->redis()->del($this->sessionKey($id));
             return true;
@@ -223,12 +227,16 @@ final class RedisSession implements SessionInterface
 
     private function updateTimestamp(string $id, string $data): bool
     {
+        if ($this->lockedSessionId !== null) {
+            $this->refreshOwnedLock($id);
+        }
+
         try {
             $redis = $this->redis();
             $key = $this->sessionKey($id);
 
-            if ($redis->exists($key) > 0) {
-                return $redis->expire($key, $this->lifetime());
+            if ($redis->expire($key, $this->lifetime())) {
+                return true;
             }
 
             return $redis->setex($key, $this->lifetime(), $data);
@@ -257,7 +265,7 @@ final class RedisSession implements SessionInterface
         $redis = $this->redis();
         $lockKey = $this->lockKey($id);
         $token = bin2hex(random_bytes(16));
-        $ttl = max(1000, (int) ($this->sessionConfig['lock_ttl'] ?? 10) * 1000);
+        $ttl = $this->lockTtlMilliseconds();
         $wait = max(0.0, (float) ($this->sessionConfig['lock_wait'] ?? 2.0));
         $sleep = max(1000, (int) ($this->sessionConfig['lock_sleep'] ?? 20000));
         $deadline = microtime(true) + $wait;
@@ -286,6 +294,69 @@ final class RedisSession implements SessionInterface
         } while (microtime(true) < $deadline);
 
         throw new RuntimeException('Unable to acquire Redis session lock.');
+    }
+
+
+    private function ensureWriteLock(string $id): void
+    {
+        if (!($this->sessionConfig['lock'] ?? true)) {
+            return;
+        }
+
+        if ($this->lockedSessionId === null) {
+            $this->acquireLock($id);
+            return;
+        }
+
+        if ($this->lockedSessionId !== $id) {
+            $this->releaseLock();
+            $this->acquireLock($id);
+            return;
+        }
+
+        $this->refreshOwnedLock($id);
+    }
+
+    private function refreshOwnedLock(string $id): void
+    {
+        if (!($this->sessionConfig['lock'] ?? true)) {
+            return;
+        }
+
+        if ($this->lockedSessionId !== $id || $this->lockToken === null) {
+            throw new RuntimeException('Redis session lock ownership lost.');
+        }
+
+        try {
+            $refreshed = $this->redis()->eval(
+                <<<'LUA'
+if redis.call('get', KEYS[1]) == ARGV[1] then
+    return redis.call('pexpire', KEYS[1], ARGV[2])
+end
+return 0
+LUA,
+                [
+                    $this->lockKey($id),
+                    $this->lockToken,
+                    (string) $this->lockTtlMilliseconds(),
+                ],
+                1
+            );
+        } catch (RedisException $exception) {
+            throw $this->connectionException($exception);
+        }
+
+        if ((int) $refreshed !== 1) {
+            throw new RuntimeException('Redis session lock ownership lost.');
+        }
+    }
+
+    private function lockTtlMilliseconds(): int
+    {
+        return max(
+            1000,
+            (int) ($this->sessionConfig['lock_ttl'] ?? 30) * 1000
+        );
     }
 
     private function releaseLock(): void

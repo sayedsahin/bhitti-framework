@@ -174,6 +174,8 @@ final class MemcachedSession implements SessionInterface
 
     private function write(string $id, string $data): bool
     {
+        $this->ensureWriteLock($id);
+
         return $this->client()->set(
             $this->key($id),
             $data,
@@ -183,6 +185,8 @@ final class MemcachedSession implements SessionInterface
 
     private function delete(string $id): bool
     {
+        $this->ensureWriteLock($id);
+
         try {
             $client = $this->client();
             $deleted = $client->delete($this->key($id));
@@ -220,6 +224,10 @@ final class MemcachedSession implements SessionInterface
 
     private function updateTimestamp(string $id, string $data): bool
     {
+        if ($this->lockedSessionId !== null) {
+            $this->refreshOwnedLock($id);
+        }
+
         $client = $this->client();
         $key = $this->key($id);
 
@@ -276,7 +284,7 @@ final class MemcachedSession implements SessionInterface
         }
 
         $token = bin2hex(random_bytes(16));
-        $ttl = max(1, (int) ($this->sessionConfig['lock_ttl'] ?? 10));
+        $ttl = $this->lockTtlSeconds();
         $wait = max(0.0, (float) ($this->sessionConfig['lock_wait'] ?? 2.0));
         $sleep = max(1000, (int) ($this->sessionConfig['lock_sleep'] ?? 20000));
         $deadline = microtime(true) + $wait;
@@ -296,6 +304,71 @@ final class MemcachedSession implements SessionInterface
         } while (microtime(true) < $deadline);
 
         throw new RuntimeException('Unable to acquire Memcached session lock.');
+    }
+
+
+    private function ensureWriteLock(string $id): void
+    {
+        if (!($this->sessionConfig['lock'] ?? true)) {
+            return;
+        }
+
+        if ($this->lockedSessionId === null) {
+            $this->acquireLock($id);
+            return;
+        }
+
+        if ($this->lockedSessionId !== $id) {
+            $this->releaseLock();
+            $this->acquireLock($id);
+            return;
+        }
+
+        $this->refreshOwnedLock($id);
+    }
+
+    private function refreshOwnedLock(string $id): void
+    {
+        if (!($this->sessionConfig['lock'] ?? true)) {
+            return;
+        }
+
+        if ($this->lockedSessionId !== $id || $this->lockToken === null) {
+            throw new RuntimeException('Memcached session lock ownership lost.');
+        }
+
+        $client = $this->client();
+        $current = $client->get(
+            $this->lockKey($id),
+            null,
+            Memcached::GET_EXTENDED
+        );
+
+        if (
+            $client->getResultCode() !== Memcached::RES_SUCCESS
+            || !is_array($current)
+            || ($current['value'] ?? null) !== $this->lockToken
+            || !isset($current['cas'])
+        ) {
+            throw new RuntimeException('Memcached session lock ownership lost.');
+        }
+
+        if (!$client->cas(
+            $current['cas'],
+            $this->lockKey($id),
+            $this->lockToken,
+            $this->lockTtlSeconds()
+        )) {
+            throw new RuntimeException('Unable to refresh Memcached session lock.');
+        }
+    }
+
+    private function lockTtlSeconds(): int
+    {
+        return max(
+            1,
+            min((int) ($this->sessionConfig['lock_ttl'] ?? 30), 2_592_000)
+        );
     }
 
     private function releaseLock(): void
