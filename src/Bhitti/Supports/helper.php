@@ -107,9 +107,9 @@ if (!function_exists('response')) {
 
 
 if (!function_exists('view')) {
-    function view(string $view, array $data = []): void
+    function view(string $view, array $data = []): string
     {
-        echo (new View())->render($view, $data);
+        return (new View())->render($view, $data);
     }
 }
 
