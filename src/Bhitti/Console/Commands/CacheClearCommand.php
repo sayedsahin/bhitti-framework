@@ -16,7 +16,20 @@ final class CacheClearCommand extends MigrationCommand
 {
     public function handle(Input $input, Output $output): int
     {
-        $cachePath = ROOT_PATH . '/storage/cache';
+        $cleanDirectories = [
+            STORAGE_PATH . '/cache/rate-limit',
+            STORAGE_PATH . '/cache/file-cache',
+        ];
+
+        $cleanFiles = [
+            STORAGE_PATH . '/cache/config.cache.php',
+            STORAGE_PATH . '/cache/route.cache.php',
+        ];
+
+        $protectedFiles = [
+            '.gitkeep',
+            'README.md',
+        ];
 
         $failures = [];
         $warnings = [];
@@ -24,20 +37,19 @@ final class CacheClearCommand extends MigrationCommand
         $deletedFiles = 0;
         $deletedDirectories = 0;
 
+        /*
+        |--------------------------------------------------------------------------
+        | Clear Active Cache Store
+        |--------------------------------------------------------------------------
+        */
         $storeCleared = false;
         $driver = 'unknown';
+
         try {
             $driver = strtolower(
                 trim((string) config('cache.driver', 'file'))
             );
 
-            /*
-            |--------------------------------------------------------------------------
-            | Clear Active Cache Store
-            |--------------------------------------------------------------------------
-            | Cache::flush() must be prefix-scoped for Redis and Memcached. It must
-            | never globally flush a shared Redis database or Memcached server.
-            */
             Cache::flush();
 
             $storeCleared = true;
@@ -57,25 +69,37 @@ final class CacheClearCommand extends MigrationCommand
         |--------------------------------------------------------------------------
         | Clear Generated Cache Files
         |--------------------------------------------------------------------------
-        | This removes:
-        |
-        | - Config cache
-        | - Route cache
-        | - File-cache entries
-        | - Generated nested cache directories
-        |
-        | Repository placeholder and documentation files are preserved.
         */
-        if (is_dir($cachePath)) {
-            $protectedFiles = [
-                '.gitkeep',
-                'README.md',
-            ];
+        foreach ($cleanFiles as $file) {
+            if (!is_file($file) && !is_link($file)) {
+                continue;
+            }
+
+            if (@unlink($file)) {
+                $deletedFiles++;
+            } else {
+                $failures[] = "Unable to delete file: {$file}";
+            }
+        }
+
+        /*
+        |--------------------------------------------------------------------------
+        | Clear Allowed Cache Directories
+        |--------------------------------------------------------------------------
+        |
+        | Only directories explicitly listed above are cleaned.
+        | The root directory itself is preserved.
+        |
+        */
+        foreach ($cleanDirectories as $directory) {
+            if (!is_dir($directory)) {
+                continue;
+            }
 
             try {
                 $iterator = new RecursiveIteratorIterator(
                     new RecursiveDirectoryIterator(
-                        $cachePath,
+                        $directory,
                         FilesystemIterator::SKIP_DOTS
                     ),
                     RecursiveIteratorIterator::CHILD_FIRST
@@ -93,7 +117,8 @@ final class CacheClearCommand extends MigrationCommand
                         if (@unlink($path)) {
                             $deletedFiles++;
                         } else {
-                            $failures[] = "Unable to delete file: {$path}";
+                            $failures[] =
+                                "Unable to delete file: {$path}";
                         }
 
                         continue;
@@ -104,40 +129,39 @@ final class CacheClearCommand extends MigrationCommand
                     }
 
                     /*
-                    * A directory may still contain a protected .gitkeep or README.
-                    * In that case it should remain and must not be reported as an
-                    * error.
-                    */
+                     * Keep non-empty directories.
+                     * This also preserves directories containing
+                     * protected files such as .gitkeep.
+                     */
                     $contents = @scandir($path);
 
                     if ($contents === false) {
-                        $failures[] = "Unable to read directory: {$path}";
+                        $failures[] =
+                            "Unable to read directory: {$path}";
                         continue;
                     }
 
-                    $remainingItems = array_diff($contents, ['.', '..']);
-
-                    if ($remainingItems !== []) {
+                    if (array_diff($contents, ['.', '..']) !== []) {
                         continue;
                     }
 
                     if (@rmdir($path)) {
                         $deletedDirectories++;
                     } elseif (is_dir($path)) {
-                        $failures[] = "Unable to delete directory: {$path}";
+                        $failures[] =
+                            "Unable to delete directory: {$path}";
                     }
                 }
             } catch (Throwable $exception) {
-                $failures[] = 'Unable to scan the cache directory: '
+                $failures[] =
+                    "Unable to clean directory [{$directory}]: "
                     . $exception->getMessage();
             }
         }
 
-        clearstatcache();
-
         /*
         |--------------------------------------------------------------------------
-        | Output Result
+        | Output
         |--------------------------------------------------------------------------
         */
         if ($storeCleared) {
