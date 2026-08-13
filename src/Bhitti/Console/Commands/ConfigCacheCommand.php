@@ -5,11 +5,12 @@ declare(strict_types=1);
 namespace Bhitti\Console\Commands;
 
 use Bhitti\Config\ConfigLoader;
+use Bhitti\Console\CommandInterface;
 use Bhitti\Console\Input;
 use Bhitti\Console\Output;
 use Symfony\Component\Dotenv\Dotenv;
 
-final class ConfigCacheCommand extends MigrationCommand
+final class ConfigCacheCommand implements CommandInterface
 {
     public function handle(Input $input, Output $output): int
     {

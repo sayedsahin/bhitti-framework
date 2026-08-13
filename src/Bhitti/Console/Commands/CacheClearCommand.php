@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Bhitti\Console\Commands;
 
 use Bhitti\Cache\Cache;
+use Bhitti\Console\CommandInterface;
 use Bhitti\Console\Input;
 use Bhitti\Console\Output;
 use FilesystemIterator;
@@ -12,7 +13,7 @@ use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use Throwable;
 
-final class CacheClearCommand extends MigrationCommand
+final class CacheClearCommand implements CommandInterface
 {
     public function handle(Input $input, Output $output): int
     {

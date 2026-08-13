@@ -4,13 +4,14 @@ declare(strict_types=1);
 
 namespace Bhitti\Console\Commands;
 
+use Bhitti\Console\CommandInterface;
 use Bhitti\Console\Input;
 use Bhitti\Console\Output;
 use Bhitti\Routing\RouteCollector;
 use RuntimeException;
 use FastRoute\RouteCollector as FastRouteCollector;
 
-final class RouteCacheCommand extends MigrationCommand
+final class RouteCacheCommand implements CommandInterface
 {
     public function handle(Input $input, Output $output): int
     {

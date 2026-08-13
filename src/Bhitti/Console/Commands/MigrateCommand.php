@@ -4,10 +4,11 @@ declare(strict_types=1);
 
 namespace Bhitti\Console\Commands;
 
+use Bhitti\Console\CommandInterface;
 use Bhitti\Console\Input;
 use Bhitti\Console\Output;
 
-final class MigrateCommand extends MigrationCommand
+final class MigrateCommand extends MigrationCommand implements CommandInterface
 {
     public function handle(Input $input, Output $output): int
     {
