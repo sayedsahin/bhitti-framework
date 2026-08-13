@@ -35,126 +35,112 @@ final class FileCache implements CacheInterface
         return $this->path . '/' . md5($key) . '.cache';
     }
 
-    public function get(string $key, mixed $default = null): mixed
+    private function lock()
     {
-        $file = $this->file($key);
-
-        $handle = @fopen($file, 'rb');
+        $handle = @fopen($this->path . '/.lock', 'c+b');
 
         if ($handle === false) {
-            return $default;
+            throw new RuntimeException('Unable to open cache lock file.');
         }
 
-        $locked = false;
+        return $handle;
+    }
 
-        try {
-            if (!flock($handle, LOCK_SH)) {
-                return $default;
-            }
-
-            $locked = true;
-            $payload = stream_get_contents($handle);
-
-        } finally {
-            if ($locked) {
-                flock($handle, LOCK_UN);
-            }
-
-            fclose($handle);
-        }
+    private function read(string $file): ?array
+    {
+        $payload = @file_get_contents($file);
 
         if (!is_string($payload) || $payload === '') {
-            return $default;
+            return null;
         }
 
         $data = @unserialize($payload);
 
         if (!is_array($data) || !array_key_exists('value', $data) || !array_key_exists('expires', $data)) {
+            return null;
+        }
+
+        return $data;
+    }
+
+    public function get(string $key, mixed $default = null): mixed
+    {
+        $this->gc();
+
+        $file = $this->file($key);
+        $lock = $this->lock();
+
+        if (!flock($lock, LOCK_SH)) {
+            fclose($lock);
+            return $default;
+        }
+
+        $data = $this->read($file);
+        flock($lock, LOCK_UN);
+
+        if ($data === null) {
+            fclose($lock);
             return $default;
         }
 
         $expires = (int) $data['expires'];
 
-        if ($expires !== 0 && $expires <= time()) {
-            @unlink($file);
+        if ($expires === 0 || $expires > time()) {
+            fclose($lock);
+            return $data['value'];
+        }
+
+        if (!flock($lock, LOCK_EX)) {
+            fclose($lock);
             return $default;
         }
 
-        return $data['value'];
+        try {
+            /* Re-check after getting the exclusive lock. */
+            $data = $this->read($file);
+
+            if ($data === null) {
+                return $default;
+            }
+
+            $expires = (int) $data['expires'];
+
+            if ($expires !== 0 && $expires <= time()) {
+                @unlink($file);
+                return $default;
+            }
+
+            return $data['value'];
+        } finally {
+            flock($lock, LOCK_UN);
+            fclose($lock);
+        }
     }
 
     public function put(string $key, mixed $value, int $ttl = 0): void
     {
-        $file = $this->file($key);
+        $this->gc();
 
+        $file = $this->file($key);
+        $lock = $this->lock();
         $payload = serialize([
             'value' => $value,
-            'expires' => $ttl > 0
-                ? time() + $ttl
-                : 0,
+            'expires' => $ttl > 0 ? time() + $ttl : 0,
         ]);
 
-        /*
-         * c+b don't file truncate
-         * First lock, then truncate/write
-         */
-        $handle = @fopen($file, 'c+b');
-
-        if ($handle === false) {
-            throw new RuntimeException(
-                "Unable to open cache file: {$file}"
-            );
-        }
-
-        $locked = false;
-
         try {
-            if (!flock($handle, LOCK_EX)) {
-                throw new RuntimeException(
-                    "Unable to lock cache file: {$file}"
-                );
+            if (!flock($lock, LOCK_EX)) {
+                throw new RuntimeException('Unable to lock cache.');
             }
 
-            $locked = true;
-
-            if (!ftruncate($handle, 0) || !rewind($handle)) {
+            if (file_put_contents($file, $payload, LOCK_EX) === false) {
                 throw new RuntimeException(
-                    "Unable to reset cache file: {$file}"
-                );
-            }
-
-            $length = strlen($payload);
-            $written = 0;
-
-            while ($written < $length) {
-                $bytes = fwrite(
-                    $handle,
-                    substr($payload, $written)
-                );
-
-                if (
-                    $bytes === false
-                    || $bytes === 0
-                ) {
-                    throw new RuntimeException(
-                        "Unable to write cache file: {$file}"
-                    );
-                }
-
-                $written += $bytes;
-            }
-
-            if (!fflush($handle)) {
-                throw new RuntimeException(
-                    "Unable to flush cache file: {$file}"
+                    "Unable to write cache file: {$file}"
                 );
             }
         } finally {
-            if ($locked) {
-                flock($handle, LOCK_UN);
-            }
-
-            fclose($handle);
+            flock($lock, LOCK_UN);
+            fclose($lock);
         }
     }
 
@@ -167,17 +153,63 @@ final class FileCache implements CacheInterface
 
     public function forget(string $key): void
     {
-        $file = $this->file($key);
+        $lock = $this->lock();
 
-        if (file_exists($file)) {
-            @unlink($file);
+        try {
+            if (flock($lock, LOCK_EX)) {
+                @unlink($this->file($key));
+            }
+        } finally {
+            flock($lock, LOCK_UN);
+            fclose($lock);
         }
     }
 
     public function flush(): void
     {
-        foreach (glob($this->path . '/*.cache') ?: [] as $file) {
-            @unlink($file);
+        $lock = $this->lock();
+
+        try {
+            if (!flock($lock, LOCK_EX)) {
+                return;
+            }
+
+            foreach (glob($this->path . '/*.cache') ?: [] as $file) {
+                @unlink($file);
+            }
+        } finally {
+            flock($lock, LOCK_UN);
+            fclose($lock);
+        }
+    }
+
+    private function gc(): void
+    {
+        if (mt_rand(1, 1000) !== 1) {
+            return;
+        }
+
+        $lock = $this->lock();
+
+        try {
+            if (!flock($lock, LOCK_EX | LOCK_NB)) {
+                return;
+            }
+
+            $bucket = sprintf('%02x', mt_rand(0, 255));
+            $now = time();
+
+            foreach (glob($this->path . '/' . $bucket . '*.cache') ?: [] as $file) {
+                $data = $this->read($file);
+                $expires = (int) ($data['expires'] ?? 0);
+
+                if ($expires !== 0 && $expires <= $now) {
+                    @unlink($file);
+                }
+            }
+        } finally {
+            flock($lock, LOCK_UN);
+            fclose($lock);
         }
     }
 }
