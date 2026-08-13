@@ -573,25 +573,62 @@ class QueryBuilder
      * Example 1: `->table('users')->updateOrInsert(['email' => $email], ['name' => $name])`
      *
      */
-    public function updateOrInsert(array $search, array $data = []): bool|int
+
+    public function updateOrInsert(array $search, array $data = []): bool
     {
-        if ($search === []) {
-            throw new InvalidArgumentException('Search conditions cannot be empty.');
+        try {
+            if ($search === []) {
+                throw new InvalidArgumentException(
+                    'Search conditions cannot be empty.'
+                );
+            }
+
+            $values = $search + $data;
+            $columns = array_keys($values);
+            $updates = array_keys($data);
+
+            $sql = "INSERT INTO {$this->table} ("
+                . implode(', ', $columns)
+                . ') VALUES ('
+                . implode(', ', array_fill(0, count($values), '?'))
+                . ')';
+
+            if ($this->driver === 'mysql') {
+                if ($updates === []) {
+                    $column = array_key_first($search);
+
+                    $sql .= " ON DUPLICATE KEY UPDATE {$column} = {$column}";
+                } else {
+                    $sql .= ' ON DUPLICATE KEY UPDATE ' . implode(
+                        ', ',
+                        array_map(
+                            fn(string $column): string => "{$column} = VALUES({$column})",
+                            $updates
+                        )
+                    );
+                }
+            } else {
+                $conflict = implode(', ', array_keys($search));
+
+                if ($updates === []) {
+                    $sql .= " ON CONFLICT ({$conflict}) DO NOTHING";
+                } else {
+                    $sql .= " ON CONFLICT ({$conflict}) DO UPDATE SET "
+                        . implode(
+                            ', ',
+                            array_map(
+                                fn(string $column): string =>
+                                    "{$column} = excluded.{$column}",
+                                $updates
+                            )
+                        );
+                }
+            }
+
+            return (bool) $this->raw($sql, array_values($values))->execute();
+        } finally {
+            $this->reset();
         }
-
-        $checker = clone $this;
-        $checker->whereConditions($search);
-
-        if ($checker->exists()) {
-            $this->whereConditions($search);
-            $this->update($data ?: $search);
-
-            return true;
-        }
-
-        $insertData = array_merge($data, $search);
-
-        return $this->insert($insertData, true);
     }
 
     /**
