@@ -76,7 +76,7 @@ final class FileCache implements CacheInterface
         $expires = (int) $data['expires'];
 
         if ($expires !== 0 && $expires <= time()) {
-            // @unlink($file);
+            @unlink($file);
             return $default;
         }
 
