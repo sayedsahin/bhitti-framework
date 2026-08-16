@@ -7,6 +7,7 @@ namespace Bhitti\Routing;
 use Bhitti\Core\Container;
 use Bhitti\Http\Middleware\MiddlewareKernel;
 use Bhitti\Http\Response;
+use Bhitti\Session\SessionManager;
 use FastRoute\Dispatcher as FastRouteDispatcher;
 
 final class RouteDispatcher
@@ -77,9 +78,30 @@ final class RouteDispatcher
 
     private function found(array $handler, array $vars, bool $isApi): void
     {
-        $middlewareResponse = $this->middleware->handle(
-            $handler[2] ?? []
-        );
+        if (!$isApi) {
+            $sessionConfig = (array) config('session', []);
+
+            if (! $sessionConfig['enabled']) {
+                $sessionConfig['driver'] = 'null';
+            }
+
+            SessionManager::configure($sessionConfig);
+        }
+
+        /*
+            * Handle Global Route Middleware form config/middleware.php
+            * Handle route-specific middleware
+            * Handle Controller Class and Method Middleware
+        */
+        $reqType = $isApi ? 'api' : 'web';
+
+        $globalMiddleware = config('middleware.route.' . $reqType, []);
+
+        $routeAndControllerMiddleware = $handler[2] ?? [];
+
+        $middlewares = array_merge($globalMiddleware, $routeAndControllerMiddleware);
+
+        $middlewareResponse = $this->middleware->handle($middlewares);
 
         if ($middlewareResponse instanceof Response) {
             $middlewareResponse->send();

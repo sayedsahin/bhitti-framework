@@ -33,6 +33,8 @@ final class MiddlewareKernel
      * A returned Response immediately terminates
      * the current request.
      */
+
+    // this method not use anymore
     public function handleGlobal(bool $isApi): ?Response
     {
         return $this->handle(

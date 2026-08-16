@@ -24,26 +24,14 @@ final class Kernel
     {
         $isApi = $request->isApi();
 
-        if (!$isApi) {
-            $sessionConfig = (array) config('session', []);
+        /* Handle kernel-level global middleware from config/middleware.php */
 
-            if (! $sessionConfig['enabled']) {
-                $sessionConfig['driver'] = 'null';
-            }
+        $reqType = $isApi ? 'api' : 'web';
+        $KernelMiddlewares = config('middleware.kernel.' . $reqType, []);
+        $response = $this->middleware->handle($KernelMiddlewares);
 
-            SessionManager::configure($sessionConfig);
-        }
-
-        $config = (array) config('middleware', []);
-
-        $this->middleware->web($config['web'] ?? []);
-        $this->middleware->api($config['api'] ?? []);
-
-        $middlewareResponse = $this->middleware->handleGlobal($isApi);
-
-        if ($middlewareResponse instanceof Response) {
-
-            $middlewareResponse->send();
+        if ($response instanceof Response) {
+            $response->send();
             return;
         }
 
