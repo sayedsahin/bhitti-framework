@@ -54,6 +54,14 @@ class QueryBuilder
         $this->table = $this->defaultTable;
         $this->select = $this->defaultSelect;
 
+        if ($this->table !== '') {
+            $this->assertTable($this->table);
+        }
+
+        foreach ($this->select as $column) {
+            $this->assertSelectColumn($column);
+        }
+
         if ($db === null) {
             global $container;
             $db = $container->make(Database::class);
@@ -119,6 +127,7 @@ class QueryBuilder
      */
     public function table(string $table): self
     {
+        $this->assertTable($table);
         $this->table = $table;
 
         return $this;
@@ -131,7 +140,30 @@ class QueryBuilder
      */
     public function select(string ...$columns): self
     {
-        $this->select = $columns ?: ['*'];
+        $columns = $columns ?: ['*'];
+
+        foreach ($columns as $column) {
+            $this->assertSelectColumn($column);
+        }
+
+        $this->select = $columns;
+
+        return $this;
+    }
+
+    /*
+    * Example 1: `// ->selectRaw('COUNT(id) AS total', 'SUM(amount) AS amount')`
+    */
+    
+    public function selectRaw(string ...$expressions): self
+    {
+        if ($this->select === ['*']) {
+            $this->select = [];
+        }
+
+        foreach ($expressions as $expression) {
+            $this->select[] = $expression;
+        }
 
         return $this;
     }
@@ -155,6 +187,10 @@ class QueryBuilder
             $value = $operator;
             $operator = '=';
         }
+
+        $this->assertIdentifier($column);
+        $operator = $this->assertOperator((string) $operator);
+        $boolean = $this->assertBoolean($boolean);
 
         $param = $this->param();
         $this->bindings[$param] = $value;
@@ -195,6 +231,8 @@ class QueryBuilder
      */
     public function whereRaw(string $sql, array $bindings = [], string $boolean = 'AND'): self
     {
+        $boolean = $this->assertBoolean($boolean);
+
         if (substr_count($sql, '?') !== count($bindings)) {
             throw new InvalidArgumentException(
                 'Raw WHERE placeholders and bindings count must match.'
@@ -239,6 +277,9 @@ class QueryBuilder
      */
     public function whereNull(string $column, string $boolean = 'AND'): self
     {
+        $this->assertIdentifier($column);
+        $boolean = $this->assertBoolean($boolean);
+
         $this->wheres[] = ['boolean' => $boolean, 'sql' => "$column IS NULL"];
 
         return $this;
@@ -251,6 +292,9 @@ class QueryBuilder
      */
     public function whereNotNull(string $column, string $boolean = 'AND'): self
     {
+        $this->assertIdentifier($column);
+        $boolean = $this->assertBoolean($boolean);
+
         $this->wheres[] = ['boolean' => $boolean, 'sql' => "$column IS NOT NULL"];
 
         return $this;
@@ -268,6 +312,9 @@ class QueryBuilder
      */
     public function like(string $column, string $value, string $boolean = 'AND'): self
     {
+        $this->assertIdentifier($column);
+        $boolean = $this->assertBoolean($boolean);
+
         $param = $this->param();
         $this->bindings[$param] = $value;
 
@@ -288,6 +335,17 @@ class QueryBuilder
      */
     public function join(string $table, string $first, string $operator, string $second, string $type = 'INNER'): self
     {
+        $this->assertTable($table);
+        $this->assertIdentifier($first);
+        $this->assertIdentifier($second);
+
+        $operator = $this->assertOperator($operator);
+        $type = strtoupper($type);
+
+        if (!in_array($type, ['INNER', 'LEFT', 'RIGHT'], true)) {
+            throw new InvalidArgumentException("Invalid JOIN type [{$type}].");
+        }
+
         $this->joins[] = "$type JOIN $table ON $first $operator $second";
 
         return $this;
@@ -328,6 +386,17 @@ class QueryBuilder
      */
     public function order(string $order): self
     {
+        foreach (explode(',', $order) as $part) {
+            $part = trim($part);
+
+            if (!preg_match(
+                '/^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*(?:\s+(?:ASC|DESC))?$/i',
+                $part
+            )) {
+                throw new InvalidArgumentException("Invalid ORDER BY expression [{$part}].");
+            }
+        }
+
         $this->order = " ORDER BY $order";
 
         return $this;
@@ -454,6 +523,10 @@ class QueryBuilder
     public function count(string $column = '*'): int
     {
         try {
+            if ($column !== '*') {
+                $this->assertIdentifier($column);
+            }
+
             if ($this->rawSql) {
                 $rawSql = rtrim($this->rawSql, " \t\n\r\0\x0B;");
                 $sql = "SELECT COUNT(*) AS total FROM ({$rawSql}) AS sub";
@@ -495,6 +568,15 @@ class QueryBuilder
             }
 
             $cols = array_keys($data);
+
+            foreach ($cols as $col) {
+                $this->assertIdentifier((string) $col);
+            }
+
+            if ($returnId) {
+                $this->assertIdentifier($primaryKey);
+            }
+
             $placeholders = [];
 
             foreach ($data as $col => $val) {
@@ -549,6 +631,8 @@ class QueryBuilder
             $set = [];
 
             foreach ($data as $col => $val) {
+                $this->assertIdentifier((string) $col);
+
                 $p = $this->param();
                 $this->bindings[$p] = $val;
                 $set[] = "$col = $p";
@@ -576,8 +660,6 @@ class QueryBuilder
 
     public function updateOrInsert(array $search, array $data = []): bool
     {
-        // try final no need in this case because reset() is called in $this->raw()->execute()
-
         if ($search === []) {
             throw new InvalidArgumentException(
                 'Search conditions cannot be empty.'
@@ -587,6 +669,10 @@ class QueryBuilder
         $values = $search + $data;
         $columns = array_keys($values);
         $updates = array_keys($data);
+
+        foreach ($columns as $column) {
+            $this->assertIdentifier((string) $column);
+        }
 
         $sql = "INSERT INTO {$this->table} ("
             . implode(', ', $columns)
@@ -791,6 +877,82 @@ class QueryBuilder
     /* ============================================================
        HELPERS
     ============================================================ */
+
+    /**
+     * Validate a SQL identifier such as users, users.id or public.users.id.
+     */
+    private function assertIdentifier(string $identifier): void
+    {
+        if (!preg_match(
+            '/^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/',
+            $identifier
+        )) {
+            throw new InvalidArgumentException("Invalid SQL identifier [{$identifier}].");
+        }
+    }
+
+    /**
+     * Validate a table name with an optional alias.
+     *
+     * Examples: users, public.users, users AS u
+     */
+    private function assertTable(string $table): void
+    {
+        if (!preg_match(
+            '/^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*(?:\s+AS\s+[A-Za-z_][A-Za-z0-9_]*)?$/i',
+            $table
+        )) {
+            throw new InvalidArgumentException("Invalid SQL table [{$table}].");
+        }
+    }
+
+    /**
+     * Validate a SELECT column with optional qualification, wildcard or alias.
+     */
+    private function assertSelectColumn(string $column): void
+    {
+        if ($column === '*') {
+            return;
+        }
+
+        if (!preg_match(
+            '/^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*(?:\.\*)?(?:\s+AS\s+[A-Za-z_][A-Za-z0-9_]*)?$/i',
+            $column
+        )) {
+            throw new InvalidArgumentException("Invalid SELECT column [{$column}].");
+        }
+    }
+
+    /**
+     * Allow only operators supported by the normal builder.
+     */
+    private function assertOperator(string $operator): string
+    {
+        $operator = strtoupper(trim($operator));
+
+        if (!in_array($operator, [
+            '=', '!=', '<>', '<', '<=', '>', '>=',
+            'LIKE', 'NOT LIKE', 'ILIKE', 'NOT ILIKE',
+        ], true)) {
+            throw new InvalidArgumentException("Invalid SQL operator [{$operator}].");
+        }
+
+        return $operator;
+    }
+
+    /**
+     * Allow only AND/OR connectors.
+     */
+    private function assertBoolean(string $boolean): string
+    {
+        $boolean = strtoupper(trim($boolean));
+
+        if ($boolean !== 'AND' && $boolean !== 'OR') {
+            throw new InvalidArgumentException("Invalid WHERE boolean [{$boolean}].");
+        }
+
+        return $boolean;
+    }
 
     /**
      * Generate the next named SQL parameter.
