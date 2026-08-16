@@ -7,7 +7,7 @@ namespace Bhitti\Database;
 use InvalidArgumentException;
 use PDO;
 
-/**
+/*
  * Lightweight SQL Query Builder.
  *
  * Terminal methods execute the query and reset the current query state.
@@ -39,7 +39,15 @@ class QueryBuilder
     // Full raw SQL mode (builder bypass)
     private ?string $rawSql = null;
 
-    /**
+    private const OPERATORS = [
+        '=', '!=', '<>', '<', '<=', '>', '>=',
+        'LIKE', 'NOT LIKE', 'ILIKE', 'NOT ILIKE'
+    ];
+    private const BOOLEANS = ['AND','OR'];
+    private const JOIN_TYPES = ['INNER', 'LEFT', 'RIGHT'];
+    private const IDENTIFIER = '[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*';
+
+    /*
      * Create a new QueryBuilder instance.
      *
      * Example 1: `db()->table('users')->get()`
@@ -77,11 +85,11 @@ class QueryBuilder
     }
 
 
-    /* ============================================================
+    /* -----------------------------------------------
        RAW SQL (FULL QUERY MODE)
-    ============================================================ */
+    ----------------------------------------------- */
 
-    /**
+    /*
      * Set a complete raw SQL query with optional bindings.
      *
      * The SQL string must always be developer-controlled.
@@ -100,7 +108,7 @@ class QueryBuilder
         return $this;
     }
 
-    /**
+    /*
      * Create a new model query.
      *
      * Example 1: `User::query()->select('id', 'email')->get()`
@@ -116,11 +124,11 @@ class QueryBuilder
     }
 
 
-    /* ============================================================
+    /* -----------------------------------------------
        CHAINING
-    ============================================================ */
+    ----------------------------------------------- */
 
-    /**
+    /*
      * Set the table used by the query.
      *
      * Example 1: `->table('users')`
@@ -133,7 +141,7 @@ class QueryBuilder
         return $this;
     }
 
-    /**
+    /*
      * Set the columns returned by the query.
      *
      * Example 1: `->select('id', 'name', 'email')->get()`
@@ -154,7 +162,7 @@ class QueryBuilder
     /*
     * Example 1: `// ->selectRaw('COUNT(id) AS total', 'SUM(amount) AS amount')`
     */
-    
+
     public function selectRaw(string ...$expressions): self
     {
         if ($this->select === ['*']) {
@@ -169,11 +177,11 @@ class QueryBuilder
     }
 
 
-    /* ============================================================
+    /* -----------------------------------------------
        BASIC WHERE
-    ============================================================ */
+    ----------------------------------------------- */
 
-    /**
+    /*
      * Add a WHERE condition.
      *
      * Example 1: `->where('id', 5)`
@@ -203,7 +211,7 @@ class QueryBuilder
         return $this;
     }
 
-    /**
+    /*
      * Add an OR WHERE condition.
      *
      * Example 1: `->where('status', 'active')->orWhere('role', '=', 'admin')`
@@ -217,14 +225,14 @@ class QueryBuilder
     }
 
 
-    /* ============================================================
+    /* -----------------------------------------------
        RAW WHERE EXPRESSIONS
 
        Values are bound safely, but the SQL expression itself
        must always be developer-controlled.
-    ============================================================ */
+    ----------------------------------------------- */
 
-    /**
+    /*
      * Add a raw WHERE expression with bound values.
      *
      * Example 1: `->whereRaw('YEAR(created_at) = ?', [2026])`
@@ -234,9 +242,7 @@ class QueryBuilder
         $boolean = $this->assertBoolean($boolean);
 
         if (substr_count($sql, '?') !== count($bindings)) {
-            throw new InvalidArgumentException(
-                'Raw WHERE placeholders and bindings count must match.'
-            );
+            $this->invalid('Raw WHERE placeholders and bindings count must match.');
         }
         $index = 0;
 
@@ -255,7 +261,7 @@ class QueryBuilder
         return $this;
     }
 
-    /**
+    /*
      * Add a raw OR WHERE expression with bound values.
      *
      * Example 1: `->orWhereRaw('LOWER(email) = ?', [strtolower($email)])`
@@ -266,11 +272,11 @@ class QueryBuilder
     }
 
 
-    /* ============================================================
+    /* -----------------------------------------------
        NULL CHECK
-    ============================================================ */
+    ----------------------------------------------- */
 
-    /**
+    /*
      * Add an IS NULL condition.
      *
      * Example 1: `->whereNull('deleted_at')->get()`
@@ -285,7 +291,7 @@ class QueryBuilder
         return $this;
     }
 
-    /**
+    /*
      * Add an IS NOT NULL condition.
      *
      * Example 1: `->whereNotNull('email_verified_at')->get()`
@@ -301,11 +307,11 @@ class QueryBuilder
     }
 
 
-    /* ============================================================
+    /* -----------------------------------------------
        LIKE
-    ============================================================ */
+    ----------------------------------------------- */
 
-    /**
+    /*
      * Add a LIKE condition.
      *
      * Example 1: `->like('name', '%John Doe%')->get()`
@@ -324,11 +330,11 @@ class QueryBuilder
     }
 
 
-    /* ============================================================
+    /* -----------------------------------------------
        JOIN
-    ============================================================ */
+    ----------------------------------------------- */
 
-    /**
+    /*
      * Add a JOIN clause.
      *
      * Example 1: `->join('roles', 'roles.id', '=', 'users.role_id')`
@@ -342,8 +348,8 @@ class QueryBuilder
         $operator = $this->assertOperator($operator);
         $type = strtoupper($type);
 
-        if (!in_array($type, ['INNER', 'LEFT', 'RIGHT'], true)) {
-            throw new InvalidArgumentException("Invalid JOIN type [{$type}].");
+        if (!in_array($type, self::JOIN_TYPES, true)) {
+            $this->invalid("Invalid JOIN type [{$type}].");
         }
 
         $this->joins[] = "$type JOIN $table ON $first $operator $second";
@@ -351,7 +357,7 @@ class QueryBuilder
         return $this;
     }
 
-    /**
+    /*
      * Add an INNER JOIN clause.
      *
      * Example 1: `->innerJoin('roles', 'roles.id', '=', 'users.role_id')`
@@ -361,7 +367,7 @@ class QueryBuilder
         return $this->join($table, $first, $operator, $second, 'INNER');
     }
 
-    /**
+    /*
      * Add a LEFT JOIN clause.
      *
      * Example 1: `->leftJoin('profiles', 'profiles.user_id', '=', 'users.id')`
@@ -372,11 +378,11 @@ class QueryBuilder
     }
 
 
-    /* ============================================================
+    /* -----------------------------------------------
        ORDER & LIMIT
-    ============================================================ */
+    ----------------------------------------------- */
 
-    /**
+    /*
      * Set the ORDER BY expression.
      *
      * The expression must always be developer-controlled.
@@ -389,11 +395,8 @@ class QueryBuilder
         foreach (explode(',', $order) as $part) {
             $part = trim($part);
 
-            if (!preg_match(
-                '/^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*(?:\s+(?:ASC|DESC))?$/i',
-                $part
-            )) {
-                throw new InvalidArgumentException("Invalid ORDER BY expression [{$part}].");
+            if (!preg_match('/^' . self::IDENTIFIER . '(?:\s+(?:ASC|DESC))?$/i', $part)) {
+                $this->invalid("Invalid ORDER BY expression [{$part}].");
             }
         }
 
@@ -402,7 +405,7 @@ class QueryBuilder
         return $this;
     }
 
-    /**
+    /*
      * Limit the number of returned rows with an optional offset.
      *
      * Example 1: `->limit(10)->get()`
@@ -410,6 +413,10 @@ class QueryBuilder
      */
     public function limit(int $limit, ?int $offset = null): self
     {
+        if ($limit < 0 || ($offset !== null && $offset < 0)) {
+            $this->invalid('LIMIT and OFFSET must be non-negative integers.');
+        }
+
         $this->limit = " LIMIT $limit";
 
         if ($offset !== null) {
@@ -420,11 +427,11 @@ class QueryBuilder
     }
 
 
-    /* ============================================================
+    /* -----------------------------------------------
        EXECUTION
-    ============================================================ */
+    ----------------------------------------------- */
 
-    /**
+    /*
      * Execute the query and return all matching rows.
      *
      * Example 1: `->table('users')->where('status', 'active')->get()`
@@ -454,7 +461,7 @@ class QueryBuilder
         }
     }
 
-    /**
+    /*
      * Execute the query and return the first matching row.
      *
      * Example 1: `->table('users')->where('email', $email)->first()`
@@ -476,7 +483,7 @@ class QueryBuilder
         }
     }
 
-    /**
+    /*
      * Find a row using an ID or another unique column.
      *
      * Example 1: `->table('users')->find(5)`
@@ -487,7 +494,7 @@ class QueryBuilder
         return $this->where($column, $id)->first();
     }
 
-    /**
+    /*
      * Determine whether a matching row exists.
      *
      * Example 1: `->table('users')->where('email', $email)->exists()`
@@ -514,7 +521,7 @@ class QueryBuilder
         }
     }
 
-    /**
+    /*
      * Count matching rows or values from a column.
      *
      * Example 1: `->table('users')->count()`
@@ -548,11 +555,11 @@ class QueryBuilder
     }
 
 
-    /* ============================================================
+    /* -----------------------------------------------
        INSERT / UPDATE / DELETE
-    ============================================================ */
+    ----------------------------------------------- */
 
-    /**
+    /*
      * Insert a new row and optionally return the inserted ID.
      *
      * Example 1: `->table('users')->insert(['name' => $name])`
@@ -564,7 +571,7 @@ class QueryBuilder
     {
         try {
             if ($data === []) {
-                throw new InvalidArgumentException('Insert data cannot be empty.');
+                $this->invalid('Insert data cannot be empty.');
             }
 
             $cols = array_keys($data);
@@ -610,7 +617,7 @@ class QueryBuilder
         }
     }
 
-    /**
+    /*
      * Update rows matching the current WHERE conditions.
      *
      * A WHERE condition is required.
@@ -621,11 +628,11 @@ class QueryBuilder
     {
         try {
             if (empty($this->wheres)) {
-                throw new InvalidArgumentException("UPDATE without WHERE is forbidden!");
+                $this->invalid("UPDATE without WHERE is forbidden!");
             }
 
             if ($data === []) {
-                throw new InvalidArgumentException('Update data cannot be empty.');
+                $this->invalid('Update data cannot be empty.');
             }
 
             $set = [];
@@ -651,7 +658,7 @@ class QueryBuilder
         }
     }
 
-    /**
+    /*
      * Update a matching row or insert a new row when no match exists.
      *
      * Example 1: `->table('users')->updateOrInsert(['email' => $email], ['name' => $name])`
@@ -661,9 +668,7 @@ class QueryBuilder
     public function updateOrInsert(array $search, array $data = []): bool
     {
         if ($search === []) {
-            throw new InvalidArgumentException(
-                'Search conditions cannot be empty.'
-            );
+            $this->invalid('Search conditions cannot be empty.');
         }
 
         $values = $search + $data;
@@ -715,7 +720,7 @@ class QueryBuilder
         return (bool) $this->raw($sql, array_values($values))->execute();
     }
 
-    /**
+    /*
      * Delete rows matching the current WHERE conditions.
      *
      * A WHERE condition is required.
@@ -726,7 +731,7 @@ class QueryBuilder
     {
         try {
             if (empty($this->wheres)) {
-                throw new InvalidArgumentException("DELETE without WHERE is forbidden!");
+                $this->invalid("DELETE without WHERE is forbidden!");
             }
 
             $sql = "DELETE FROM {$this->table}" . $this->compileWheres();
@@ -740,7 +745,7 @@ class QueryBuilder
         }
     }
 
-    /**
+    /*
      * Execute a raw INSERT, UPDATE or DELETE query.
      *
      * Example 1: `->raw('UPDATE users SET status = ? WHERE id = ?', ['active', 5])->execute()`
@@ -752,7 +757,7 @@ class QueryBuilder
     {
         try {
             if (!$this->rawSql) {
-                throw new InvalidArgumentException('No raw SQL query has been set.');
+                $this->invalid('No raw SQL query has been set.');
             }
 
             $stmt = $this->pdo->prepare($this->rawSql);
@@ -766,9 +771,7 @@ class QueryBuilder
                 $id = $stmt->fetchColumn();
 
                 if ($id === false) {
-                    throw new InvalidArgumentException(
-                        'PostgreSQL raw insert must include a RETURNING column.'
-                    );
+                    $this->invalid('PostgreSQL raw insert must include a RETURNING column.');
                 }
 
                 return (int) $id;
@@ -780,7 +783,7 @@ class QueryBuilder
         }
     }
 
-    /**
+    /*
      * Return all values from one column.
      *
      * Example 1: `->table('users')->where('status', 'active')->pluck('email')`
@@ -802,7 +805,7 @@ class QueryBuilder
         }
     }
 
-    /**
+    /*
      * Return one column value from the first matching row.
      *
      * Example 1: `->table('users')->where('id', 5)->value('email')`
@@ -827,11 +830,11 @@ class QueryBuilder
     }
 
 
-    /* ============================================================
+    /* -----------------------------------------------
        SQL BUILDERS
-    ============================================================ */
+    ----------------------------------------------- */
 
-    /**
+    /*
      * Compile and return the current SELECT query.
      *
      * Example 1: `->table('users')->where('status', 'active')->toSql()`
@@ -846,7 +849,7 @@ class QueryBuilder
             . $this->limit;
     }
 
-    /**
+    /*
      * Compile the current JOIN clauses.
      */
     private function compileJoins(): string
@@ -854,7 +857,7 @@ class QueryBuilder
         return $this->joins ? " " . implode(" ", $this->joins) : '';
     }
 
-    /**
+    /*
      * Compile the current WHERE conditions.
      */
     private function compileWheres(): string
@@ -874,39 +877,33 @@ class QueryBuilder
     }
 
 
-    /* ============================================================
+    /* -----------------------------------------------
        HELPERS
-    ============================================================ */
+    ----------------------------------------------- */
 
-    /**
+    /*
      * Validate a SQL identifier such as users, users.id or public.users.id.
      */
     private function assertIdentifier(string $identifier): void
     {
-        if (!preg_match(
-            '/^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/',
-            $identifier
-        )) {
-            throw new InvalidArgumentException("Invalid SQL identifier [{$identifier}].");
+        if (!preg_match('/^' . self::IDENTIFIER . '$/', $identifier)) {
+            $this->invalid("Invalid SQL identifier [{$identifier}].");
         }
     }
 
-    /**
+    /*
      * Validate a table name with an optional alias.
      *
      * Examples: users, public.users, users AS u
      */
     private function assertTable(string $table): void
     {
-        if (!preg_match(
-            '/^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*(?:\s+AS\s+[A-Za-z_][A-Za-z0-9_]*)?$/i',
-            $table
-        )) {
-            throw new InvalidArgumentException("Invalid SQL table [{$table}].");
+        if (!preg_match('/^' . self::IDENTIFIER . '(?:\s+AS\s+[A-Za-z_][A-Za-z0-9_]*)?$/i', $table)) {
+            $this->invalid("Invalid SQL table [{$table}].");
         }
     }
 
-    /**
+    /*
      * Validate a SELECT column with optional qualification, wildcard or alias.
      */
     private function assertSelectColumn(string $column): void
@@ -916,45 +913,42 @@ class QueryBuilder
         }
 
         if (!preg_match(
-            '/^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*(?:\.\*)?(?:\s+AS\s+[A-Za-z_][A-Za-z0-9_]*)?$/i',
+            '/^' . self::IDENTIFIER . '(?:\.\*)?(?:\s+AS\s+[A-Za-z_][A-Za-z0-9_]*)?$/i',
             $column
         )) {
-            throw new InvalidArgumentException("Invalid SELECT column [{$column}].");
+            $this->invalid("Invalid SELECT column [{$column}].");
         }
     }
 
-    /**
+    /*
      * Allow only operators supported by the normal builder.
      */
     private function assertOperator(string $operator): string
     {
         $operator = strtoupper(trim($operator));
 
-        if (!in_array($operator, [
-            '=', '!=', '<>', '<', '<=', '>', '>=',
-            'LIKE', 'NOT LIKE', 'ILIKE', 'NOT ILIKE',
-        ], true)) {
-            throw new InvalidArgumentException("Invalid SQL operator [{$operator}].");
+        if (!in_array($operator, self::OPERATORS, true)) {
+            $this->invalid("Invalid SQL operator [{$operator}].");
         }
 
         return $operator;
     }
 
-    /**
+    /*
      * Allow only AND/OR connectors.
      */
     private function assertBoolean(string $boolean): string
     {
         $boolean = strtoupper(trim($boolean));
 
-        if ($boolean !== 'AND' && $boolean !== 'OR') {
-            throw new InvalidArgumentException("Invalid WHERE boolean [{$boolean}].");
+        if (!in_array($boolean, self::BOOLEANS, true)) {
+            $this->invalid("Invalid WHERE boolean [{$boolean}].");
         }
 
         return $boolean;
     }
 
-    /**
+    /*
      * Generate the next named SQL parameter.
      */
     private function param(): string
@@ -962,7 +956,7 @@ class QueryBuilder
         return ':p' . (++$this->paramCounter);
     }
 
-    /**
+    /*
      * Add multiple equality WHERE conditions.
      *
      * Example 1: `->whereConditions(['status' => 'active', 'role_id' => 2])->get()`
@@ -976,8 +970,12 @@ class QueryBuilder
         return $this;
     }
 
+    private function invalid(string $message): never
+    {
+        throw new InvalidArgumentException($message);
+    }
 
-    /**
+    /*
      * Reset query-specific state while preserving the selected table.
      */
     private function reset(): void
