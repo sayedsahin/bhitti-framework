@@ -576,59 +576,57 @@ class QueryBuilder
 
     public function updateOrInsert(array $search, array $data = []): bool
     {
-        try {
-            if ($search === []) {
-                throw new InvalidArgumentException(
-                    'Search conditions cannot be empty.'
+        // try final no need in this case because reset() is called in $this->raw()->execute()
+
+        if ($search === []) {
+            throw new InvalidArgumentException(
+                'Search conditions cannot be empty.'
+            );
+        }
+
+        $values = $search + $data;
+        $columns = array_keys($values);
+        $updates = array_keys($data);
+
+        $sql = "INSERT INTO {$this->table} ("
+            . implode(', ', $columns)
+            . ') VALUES ('
+            . implode(', ', array_fill(0, count($values), '?'))
+            . ')';
+
+        if ($this->driver === 'mysql') {
+            if ($updates === []) {
+                $column = array_key_first($search);
+
+                $sql .= " ON DUPLICATE KEY UPDATE {$column} = {$column}";
+            } else {
+                $sql .= ' ON DUPLICATE KEY UPDATE ' . implode(
+                    ', ',
+                    array_map(
+                        fn(string $column): string => "{$column} = VALUES({$column})",
+                        $updates
+                    )
                 );
             }
+        } else {
+            $conflict = implode(', ', array_keys($search));
 
-            $values = $search + $data;
-            $columns = array_keys($values);
-            $updates = array_keys($data);
-
-            $sql = "INSERT INTO {$this->table} ("
-                . implode(', ', $columns)
-                . ') VALUES ('
-                . implode(', ', array_fill(0, count($values), '?'))
-                . ')';
-
-            if ($this->driver === 'mysql') {
-                if ($updates === []) {
-                    $column = array_key_first($search);
-
-                    $sql .= " ON DUPLICATE KEY UPDATE {$column} = {$column}";
-                } else {
-                    $sql .= ' ON DUPLICATE KEY UPDATE ' . implode(
+            if ($updates === []) {
+                $sql .= " ON CONFLICT ({$conflict}) DO NOTHING";
+            } else {
+                $sql .= " ON CONFLICT ({$conflict}) DO UPDATE SET "
+                    . implode(
                         ', ',
                         array_map(
-                            fn(string $column): string => "{$column} = VALUES({$column})",
+                            fn(string $column): string =>
+                                "{$column} = excluded.{$column}",
                             $updates
                         )
                     );
-                }
-            } else {
-                $conflict = implode(', ', array_keys($search));
-
-                if ($updates === []) {
-                    $sql .= " ON CONFLICT ({$conflict}) DO NOTHING";
-                } else {
-                    $sql .= " ON CONFLICT ({$conflict}) DO UPDATE SET "
-                        . implode(
-                            ', ',
-                            array_map(
-                                fn(string $column): string =>
-                                    "{$column} = excluded.{$column}",
-                                $updates
-                            )
-                        );
-                }
             }
-
-            return (bool) $this->raw($sql, array_values($values))->execute();
-        } finally {
-            $this->reset();
         }
+
+        return (bool) $this->raw($sql, array_values($values))->execute();
     }
 
     /**
