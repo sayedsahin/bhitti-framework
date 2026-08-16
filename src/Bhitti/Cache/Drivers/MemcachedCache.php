@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Bhitti\Cache\Drivers;
 
 use Bhitti\Cache\CacheInterface;
+use Bhitti\Connector\MemcachedConnectionManager;
 use InvalidArgumentException;
-use RuntimeException;
 
 final class MemcachedCache implements CacheInterface
 {
@@ -15,18 +15,8 @@ final class MemcachedCache implements CacheInterface
     private string $versionKey;
     private ?string $namespace = null;
 
-    public function __construct(array $config, string $prefix = 'bhitti:cache:')
+    public function __construct(string $prefix = 'bhitti:cache:')
     {
-        if (!class_exists(\Memcached::class)) {
-            throw new RuntimeException('Memcached extension is not installed.');
-        }
-
-        $servers = (array) ($config['servers'] ?? []);
-
-        if ($servers === []) {
-            throw new InvalidArgumentException('At least one Memcached server is required.');
-        }
-
         $prefix = trim($prefix);
 
         if ($prefix === '') {
@@ -40,25 +30,7 @@ final class MemcachedCache implements CacheInterface
         $this->prefix = rtrim($prefix, ':') . ':';
         $this->versionKey = $this->prefix . '__version';
 
-        $persistentId = trim($config['persistent_id']);
-
-        $this->memcached = $persistentId !== ''
-            ? new \Memcached($persistentId)
-            : new \Memcached();
-
-        if ($this->memcached->getServerList() === []) {
-            $this->memcached->setOption(\Memcached::OPT_BINARY_PROTOCOL, true);
-            $this->memcached->setOption(
-                \Memcached::OPT_CONNECT_TIMEOUT,
-                $config['connect_timeout']
-            );
-
-            if (count($servers) > 1) {
-                $this->memcached->setOption(\Memcached::OPT_LIBKETAMA_COMPATIBLE, true);
-            }
-
-            $this->addServers($servers);
-        }
+        $this->memcached = MemcachedConnectionManager::connection();
     }
 
     public function get(string $key, mixed $default = null): mixed
@@ -94,27 +66,6 @@ final class MemcachedCache implements CacheInterface
 
         if ($this->memcached->set($this->versionKey, $version, 0)) {
             $this->namespace = $this->prefix . $version . ':';
-        }
-    }
-
-    private function addServers(array $servers): void
-    {
-        $normalized = [];
-
-        foreach ($servers as $server) {
-            $host = $server['host'];
-            $port = $server['port'];
-            $weight = $server['weight'];
-
-            if ($host === '' || $port < 1 || $port > 65535 || $weight < 0) {
-                throw new InvalidArgumentException('Invalid Memcached server configuration.');
-            }
-
-            $normalized[] = [$host, $port, $weight];
-        }
-
-        if (!$this->memcached->addServers($normalized)) {
-            throw new RuntimeException('Unable to configure Memcached servers.');
         }
     }
 

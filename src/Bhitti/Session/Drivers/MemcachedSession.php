@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Bhitti\Session\Drivers;
 
+use Bhitti\Connector\MemcachedConnectionManager;
 use Bhitti\Http\TrustedProxy;
 use Bhitti\Session\SessionAccess;
 use Bhitti\Session\SessionInterface;
@@ -24,8 +25,7 @@ final class MemcachedSession implements SessionInterface
     private ?string $lockToken = null;
 
     public function __construct(
-        private readonly array $sessionConfig,
-        private readonly array $memcachedConfig
+        private readonly array $sessionConfig
     ) {
     }
 
@@ -242,22 +242,7 @@ final class MemcachedSession implements SessionInterface
 
     private function client(): Memcached
     {
-        if ($this->memcached !== null) {
-            return $this->memcached;
-        }
-
-        if (!class_exists(Memcached::class)) {
-            throw new RuntimeException('PHP Memcached extension is required.');
-        }
-
-        $client = new Memcached();
-        $servers = $this->memcachedConfig['servers'] ?? [];
-
-        if (!$client->addServers($servers)) {
-            throw new RuntimeException('Unable to connect Memcached servers.');
-        }
-
-        return $this->memcached = $client;
+        return $this->memcached ??= MemcachedConnectionManager::connection();
     }
 
     private function key(string $id): string

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Bhitti\RateLimit\RateLimitDriver;
 
+use Bhitti\Connector\MemcachedConnectionManager;
 use Bhitti\RateLimit\RateLimitResult;
 use Memcached;
 use RuntimeException;
@@ -14,46 +15,7 @@ final class MemcachedDriver implements RateLimitDriverInterface
 
     public function __construct()
     {
-        if (!class_exists(Memcached::class)) {
-            throw new RuntimeException('PHP Memcached extension is not installed.');
-        }
-
-        $config = (array) config('database.memcached', []);
-        $servers = (array) ($config['servers'] ?? []);
-
-        if ($servers === []) {
-            throw new RuntimeException('No Memcached server is configured.');
-        }
-
-        $persistentId = trim($config['persistent_id']);
-
-        $this->memcached = $persistentId !== ''
-            ? new Memcached($persistentId)
-            : new Memcached();
-
-        $this->memcached->setOption(Memcached::OPT_BINARY_PROTOCOL, true);
-        $this->memcached->setOption(
-            Memcached::OPT_CONNECT_TIMEOUT,
-            $config['connect_timeout']
-        );
-
-        if (count($servers) > 1) {
-            $this->memcached->setOption(Memcached::OPT_LIBKETAMA_COMPATIBLE, true);
-        }
-
-        if ($this->memcached->getServerList() === []) {
-            $this->memcached->setOption(Memcached::OPT_BINARY_PROTOCOL, true);
-            $this->memcached->setOption(
-                Memcached::OPT_CONNECT_TIMEOUT,
-                $config['connect_timeout']
-            );
-
-            if (count($servers) > 1) {
-                $this->memcached->setOption(Memcached::OPT_LIBKETAMA_COMPATIBLE, true);
-            }
-
-            $this->addServers($servers);
-        }
+        $this->memcached = MemcachedConnectionManager::connection();
     }
 
     public function hit(
@@ -150,32 +112,4 @@ final class MemcachedDriver implements RateLimitDriverInterface
         }
     }
 
-    private function addServers(array $servers): void
-    {
-        $normalized = [];
-
-        foreach ($servers as $server) {
-            $host = trim($server['host']);
-            $port = $server['port'];
-            $weight = $server['weight'];
-
-            if ($host === '') {
-                throw new RuntimeException('Memcached server host cannot be empty.');
-            }
-
-            if ($port < 1 || $port > 65535) {
-                throw new RuntimeException("Invalid Memcached server port: {$port}.");
-            }
-
-            if ($weight < 0) {
-                throw new RuntimeException('Memcached server weight cannot be negative.');
-            }
-
-            $normalized[] = [$host, $port, $weight];
-        }
-
-        if (!$this->memcached->addServers($normalized)) {
-            throw new RuntimeException('Unable to configure Memcached servers.');
-        }
-    }
 }

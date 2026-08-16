@@ -26,7 +26,7 @@ final class CacheManager
                     (string) ($config['redis']['connection'] ?? 'default'),
                     (string) ($config['prefix'] ?? 'bhitti:cache:')
                 ),
-                'memcached' => new MemcachedCache(config('database.memcached'), $config['prefix']),
+                'memcached' => new MemcachedCache($config['prefix']),
 
                 default => throw new RuntimeException(
                     'Unsupported cache driver: ' . $driver
