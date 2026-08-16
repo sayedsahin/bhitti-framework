@@ -7,6 +7,7 @@ namespace Bhitti\Session\Drivers;
 use Bhitti\Http\TrustedProxy;
 use Bhitti\Session\SessionAccess;
 use Bhitti\Session\SessionInterface;
+use Bhitti\Session\SessionSaveHandler;
 use Bhitti\Connector\RedisConnectionManager;
 use Redis;
 use RedisException;
@@ -148,22 +149,19 @@ final class RedisSession implements SessionInterface
             return;
         }
 
-        $registered = session_set_save_handler(
-            static fn(string $savePath, string $sessionName): bool => true,
-            function (): bool {
+        $handler = new SessionSaveHandler(
+            close: function (): bool {
                 $this->releaseLock();
                 return true;
             },
-            fn(string $id): string => $this->readSession($id),
-            fn(string $id, string $data): bool => $this->writeSession($id, $data),
-            fn(string $id): bool => $this->destroySession($id),
-            static fn(int $maxLifetime): int => 0,
-            null,
-            fn(string $id): bool => $this->validateSessionId($id),
-            fn(string $id, string $data): bool => $this->updateTimestamp($id, $data)
+            read: fn(string $id): string => $this->readSession($id),
+            write: fn(string $id, string $data): bool => $this->writeSession($id, $data),
+            destroy: fn(string $id): bool => $this->destroySession($id),
+            validate: fn(string $id): bool => $this->validateSessionId($id),
+            update: fn(string $id, string $data): bool => $this->updateTimestamp($id, $data)
         );
 
-        if (!$registered) {
+        if (!session_set_save_handler($handler, true)) {
             throw new RuntimeException('Unable to register Redis session handler.');
         }
 
