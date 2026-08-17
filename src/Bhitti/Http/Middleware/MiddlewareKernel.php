@@ -28,20 +28,6 @@ final class MiddlewareKernel
     }
 
     /**
-     * Execute global middleware.
-     *
-     * A returned Response immediately terminates
-     * the current request.
-     */
-
-    // this method not use anymore
-    public function handleGlobal(bool $isApi): ?Response
-    {
-        return $this->handle(
-            $isApi ? $this->api : $this->web
-        );
-    }
-    /**
      * Execute a middleware stack.
      *
      * Returns the first Response produced by a middleware.

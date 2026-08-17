@@ -116,10 +116,4 @@ final class RouteCollector extends FastRouteCollector
 
         return count($types) === 1 ? $types[0] : $types;
     }
-
-    public function middleware(string $middleware): self
-    {
-        // 
-        return $this;
-    }
 }
