@@ -36,7 +36,6 @@ final class ResponseRedirect extends Response
         }
 
         $this->headers['Location'] = $this->resolveUrl($url);
-        dd($this->headers['Location']);
         return $this;
     }
 
