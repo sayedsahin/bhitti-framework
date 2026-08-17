@@ -12,7 +12,7 @@ use PDO;
  *
  * Terminal methods execute the query and reset the current query state.
  */
-class QueryBuilder
+abstract class QueryBuilder
 {
     protected PDO $pdo;
     private string $driver;
@@ -48,14 +48,12 @@ class QueryBuilder
     private const IDENTIFIER = '[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*';
 
     /*
-     * Create a new QueryBuilder instance.
      *
      * Example 1: `db()->table('users')->get()`
      *
      * When Extend QueryBuilder by Model
      * Example 2: `$model = new User(); $model->select('id', 'email')->get()`
      *
-     * Example 3: `$query = new QueryBuilder($database);`
      */
     public function __construct(?Database $db = null, ?string $connection = null)
     {
