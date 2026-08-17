@@ -57,12 +57,10 @@ final class Migrator
             $executed = [];
 
             foreach ($pending as $name => $file) {
-                $checksum = $this->loader->checksum($file);
-
-                $this->runAtomically(function () use ($name, $file, $batch, $checksum): void {
+                $this->runAtomically(function () use ($name, $file, $batch): void {
                     $migration = $this->loader->load($file);
                     $migration['up']();
-                    $this->repository->log($name, $batch, $checksum);
+                    $this->repository->log($name, $batch);
                 });
 
                 $executed[] = $name;
@@ -78,7 +76,7 @@ final class Migrator
      *
      * @return array<int, string>
      */
-    public function rollback(?int $step = null, bool $allowModified = false): array
+    public function rollback(?int $step = null): array
     {
         if ($step !== null && $step < 1) {
             throw new RuntimeException('Rollback step must be greater than zero.');
@@ -86,7 +84,7 @@ final class Migrator
 
         $this->repository->ensureTable();
 
-        return $this->withLock(fn (): array => $this->withSchema(function () use ($step, $allowModified): array {
+        return $this->withLock(fn (): array => $this->withSchema(function () use ($step): array {
             $files = $this->loader->files();
             $records = $step === null
                 ? $this->repository->lastBatch()
@@ -105,14 +103,6 @@ final class Migrator
                 if ($file === null) {
                     throw new RuntimeException(
                         "Cannot roll back migration [{$name}] because its file is missing."
-                    );
-                }
-
-                $checksum = $this->loader->checksum($file);
-
-                if (!$allowModified && !hash_equals($record['checksum'], $checksum)) {
-                    throw new RuntimeException(
-                        "Cannot roll back modified migration [{$name}]. Restore the original file or use --allow-modified."
                     );
                 }
 
@@ -154,9 +144,7 @@ final class Migrator
             if ($record !== null && $file === null) {
                 $state = 'missing';
             } elseif ($record !== null && $file !== null) {
-                $state = hash_equals($record['checksum'], $this->loader->checksum($file))
-                    ? 'ran'
-                    : 'modified';
+                $state = 'ran';
             }
 
             $status[] = [

@@ -105,17 +105,6 @@ final class MigrationLoader
         ];
     }
 
-    public function checksum(string $file): string
-    {
-        $checksum = hash_file('sha256', $file);
-
-        if ($checksum === false) {
-            throw new RuntimeException("Unable to calculate migration checksum: {$file}");
-        }
-
-        return $checksum;
-    }
-
     public function path(): string
     {
         return $this->path;

@@ -20,11 +20,10 @@ final class MigrationRepository
         $this->schema->createIfNotExists($this->table, static function (Blueprint $table): void {
             $table->string('migration', 255)->primary();
             $table->integer('batch');
-            $table->string('checksum', 64);
             $table->timestamp('executed_at');
         });
 
-        foreach (['migration', 'batch', 'checksum', 'executed_at'] as $column) {
+        foreach (['migration', 'batch', 'executed_at'] as $column) {
             if (!$this->schema->hasColumn($this->table, $column)) {
                 throw new \RuntimeException(
                     "Migration repository [{$this->table}] is missing required column [{$column}]."
@@ -33,12 +32,12 @@ final class MigrationRepository
         }
     }
 
-    /** @return array<string, array{migration: string, batch: int, checksum: string, executed_at: string}> */
+    /** @return array<string, array{migration: string, batch: int, executed_at: string}> */
     public function all(): array
     {
         $table = $this->schema->grammar()->wrap($this->table);
         $statement = $this->pdo->query(
-            "SELECT migration, batch, checksum, executed_at FROM {$table} ORDER BY migration ASC"
+            "SELECT migration, batch, executed_at FROM {$table} ORDER BY migration ASC"
         );
 
         $rows = [];
@@ -48,7 +47,6 @@ final class MigrationRepository
             $rows[$migration] = [
                 'migration' => $migration,
                 'batch' => (int) $row['batch'],
-                'checksum' => (string) $row['checksum'],
                 'executed_at' => (string) $row['executed_at'],
             ];
         }
@@ -56,7 +54,7 @@ final class MigrationRepository
         return $rows;
     }
 
-    /** @return array<int, array{migration: string, batch: int, checksum: string, executed_at: string}> */
+    /** @return array<int, array{migration: string, batch: int, executed_at: string}> */
     public function lastBatch(): array
     {
         $batch = $this->lastBatchNumber();
@@ -67,20 +65,20 @@ final class MigrationRepository
 
         $table = $this->schema->grammar()->wrap($this->table);
         $statement = $this->pdo->prepare(
-            "SELECT migration, batch, checksum, executed_at FROM {$table} WHERE batch = ? ORDER BY migration DESC"
+            "SELECT migration, batch, executed_at FROM {$table} WHERE batch = ? ORDER BY migration DESC"
         );
         $statement->execute([$batch]);
 
         return $this->normalizeRows($statement->fetchAll(PDO::FETCH_ASSOC));
     }
 
-    /** @return array<int, array{migration: string, batch: int, checksum: string, executed_at: string}> */
+    /** @return array<int, array{migration: string, batch: int, executed_at: string}> */
     public function lastMigrations(int $limit): array
     {
         $limit = max(1, $limit);
         $table = $this->schema->grammar()->wrap($this->table);
         $statement = $this->pdo->query(
-            "SELECT migration, batch, checksum, executed_at FROM {$table} "
+            "SELECT migration, batch, executed_at FROM {$table} "
             . 'ORDER BY batch DESC, migration DESC LIMIT ' . $limit
         );
 
@@ -92,16 +90,15 @@ final class MigrationRepository
         return $this->lastBatchNumber() + 1;
     }
 
-    public function log(string $migration, int $batch, string $checksum): void
+    public function log(string $migration, int $batch): void
     {
         $table = $this->schema->grammar()->wrap($this->table);
         $statement = $this->pdo->prepare(
-            "INSERT INTO {$table} (migration, batch, checksum, executed_at) VALUES (?, ?, ?, ?)"
+            "INSERT INTO {$table} (migration, batch, executed_at) VALUES (?, ?, ?)"
         );
         $statement->execute([
             $migration,
             $batch,
-            $checksum,
             gmdate('Y-m-d H:i:s'),
         ]);
     }
@@ -123,7 +120,7 @@ final class MigrationRepository
 
     /**
      * @param array<int, array<string, mixed>> $rows
-     * @return array<int, array{migration: string, batch: int, checksum: string, executed_at: string}>
+     * @return array<int, array{migration: string, batch: int, executed_at: string}>
      */
     private function normalizeRows(array $rows): array
     {
@@ -131,7 +128,6 @@ final class MigrationRepository
             static fn (array $row): array => [
                 'migration' => (string) $row['migration'],
                 'batch' => (int) $row['batch'],
-                'checksum' => (string) $row['checksum'],
                 'executed_at' => (string) $row['executed_at'],
             ],
             $rows

@@ -17,10 +17,7 @@ final class MigrateRollbackCommand extends MigrationCommand implements CommandIn
 
         $step = $this->step($input);
 
-        $rolledBack = $this->migrator($input)->rollback(
-            $step,
-            $input->hasOption('allow-modified')
-        );
+        $rolledBack = $this->migrator($input)->rollback($step);
 
         if ($rolledBack === []) {
             $output->line('Nothing to roll back.');
