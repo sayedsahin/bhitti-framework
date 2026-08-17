@@ -6,6 +6,8 @@ namespace Bhitti\Console;
 
 use Bhitti\Console\Commands\CacheClearCommand;
 use Bhitti\Console\Commands\ConfigCacheCommand;
+use Bhitti\Console\Commands\CreateSeederCommand;
+use Bhitti\Console\Commands\DbSeedCommand;
 use Bhitti\Console\Commands\MigrateCommand;
 use Bhitti\Console\Commands\MigrateRollbackCommand;
 use Bhitti\Console\Commands\MigrateStatusCommand;
@@ -40,6 +42,15 @@ final class FrameworkCommands
             'migrate:status' => [
                 'class' => MigrateStatusCommand::class,
                 'description' => 'Show database migration status.',
+            ],
+            'create:seeder' => [
+                'class' => CreateSeederCommand::class,
+                'description' => 'Create and register a database seeder.',
+            ],
+
+            'db:seed' => [
+                'class' => DbSeedCommand::class,
+                'description' => 'Run database seeders.',
             ],
 
             'config:cache' => [
