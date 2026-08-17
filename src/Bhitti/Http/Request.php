@@ -151,7 +151,7 @@ final class Request
 
     public function host(): string
     {
-        if (TrustedProxy::isSecureRequest($this->server)) {
+        if (TrustedProxy::isTrustedProxy($this->server)) {
             $forwardedHost =
                 $this->server['HTTP_X_FORWARDED_HOST'] ?? '';
 
