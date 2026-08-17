@@ -36,7 +36,7 @@ final class ResponseRedirect extends Response
         }
 
         $this->headers['Location'] = $this->resolveUrl($url);
-
+        dd($this->headers['Location']);
         return $this;
     }
 
@@ -64,8 +64,11 @@ final class ResponseRedirect extends Response
         if (
             str_starts_with($url, 'http://')
             || str_starts_with($url, 'https://')
+            || str_starts_with($url, '//')
         ) {
-            return $url;
+            throw new \InvalidArgumentException(
+                'Absolute URLs are not allowed in redirect()->to(). Use away() instead.'
+            );
         }
 
         return rtrim(BASE_URL, '/') . '/' . ltrim($url, '/');
