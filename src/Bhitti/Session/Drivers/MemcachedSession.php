@@ -348,10 +348,14 @@ final class MemcachedSession implements SessionInterface
 
     private function lockTtlSeconds(): int
     {
-        return max(
-            1,
-            min((int) ($this->sessionConfig['lock_ttl'] ?? 30), 2_592_000)
-        );
+        $ttl = max(1, (int) ($this->sessionConfig['lock_ttl'] ?? 30));
+        $maxExecutionTime = (int) ini_get('max_execution_time');
+
+        if ($maxExecutionTime > 0) {
+            $ttl = max($ttl, $maxExecutionTime + 5);
+        }
+
+        return min($ttl, 2_592_000);
     }
 
     private function releaseLock(): void

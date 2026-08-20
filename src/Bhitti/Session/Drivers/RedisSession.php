@@ -351,10 +351,14 @@ LUA,
 
     private function lockTtlMilliseconds(): int
     {
-        return max(
-            1000,
-            (int) ($this->sessionConfig['lock_ttl'] ?? 30) * 1000
-        );
+        $ttl = max(1, (int) ($this->sessionConfig['lock_ttl'] ?? 30));
+        $maxExecutionTime = (int) ini_get('max_execution_time');
+
+        if ($maxExecutionTime > 0) {
+            $ttl = max($ttl, $maxExecutionTime + 5);
+        }
+
+        return max(1000, $ttl * 1000);
     }
 
     private function releaseLock(): void
