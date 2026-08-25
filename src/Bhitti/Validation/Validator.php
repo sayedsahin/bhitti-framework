@@ -10,7 +10,6 @@ final class Validator
     private array $errors = [];
     private array $nullable = [];
     private array $validatedFields = [];
-    private array $typeHints = [];
     private bool $stopOnFirstFailure = false;
     private const BOOLEAN_VALUES = [true, false, 0, 1, '0', '1', 'true', 'false'];
 
@@ -71,51 +70,6 @@ final class Validator
         if ($this->stopOnFirstFailure) {
             throw new ValidationException($this->errors);
         }
-    }
-
-    /**
-     * Determine the comparable "size" of a value for min/max checks.
-     *
-     * - array           -> element count
-     * - numeric field   -> the numeric value itself
-     * - everything else -> string length (multibyte-safe)
-     *
-     * A field is treated as numeric when it was declared with int(), or when
-     * its value is an int/float or a numeric string.
-     */
-    private function sizeOf(string $field, mixed $value): int|float
-    {
-        if (is_array($value)) {
-            return count($value);
-        }
-
-        if (($this->typeHints[$field] ?? null) === 'numeric') {
-            return (float) $value;
-        }
-
-        return mb_strlen((string) $value);
-    }
-
-    /**
-     * Human-readable unit for min/max messages, matching sizeOf()'s measure.
-     */
-    private function unitOf(string $field, mixed $value): string
-    {
-        if (is_array($value)) {
-            return 'items';
-        }
-
-        if (is_int($value) || is_float($value)) {
-            return '';
-        }
-
-        $hint = $this->typeHints[$field] ?? null;
-
-        if ($hint !== 'string' && is_string($value) && is_numeric($value)) {
-            return '';
-        }
-
-        return 'characters';
     }
 
     /* ===============================
@@ -183,8 +137,6 @@ final class Validator
         foreach ($this->fields($fields) as $field) {
             $v = $this->value($field);
 
-            $this->typeHints[$field] = 'string';
-
             if ($v === null && $this->isNullable($field)) continue;
 
             if (! is_string($v)) {
@@ -199,12 +151,10 @@ final class Validator
         foreach ($this->fields($fields) as $field) {
             $v = $this->value($field);
 
-            $this->typeHints[$field] = 'numeric';
-
             if ($v === null && $this->isNullable($field)) continue;
 
             if (filter_var($v, FILTER_VALIDATE_INT) === false) {
-                $this->error($field, 'Must be an integer.');
+                $this->error($field, 'Must be a numeric.');
             }
         }
         return $this;
@@ -238,37 +188,32 @@ final class Validator
         return $this;
     }
 
-    public function min(string|array $fields, int|float $min): self
+    public function min(string|array $fields, int $min): self
     {
         foreach ($this->fields($fields) as $field) {
             $v = $this->value($field);
 
             if ($v === null && $this->isNullable($field)) continue;
 
-            if ($this->sizeOf($field, $v) < $min) {
-                $this->error($field, trim("Minimum {$min} " . $this->unitOf($field, $v)) . '.');
+            if (mb_strlen((string)$v) < $min) {
+                $this->error($field, "Minimum {$min} characters.");
             }
         }
         return $this;
     }
 
-    public function max(string|array $fields, int|float $max): self
+    public function max(string|array $fields, int $max): self
     {
         foreach ($this->fields($fields) as $field) {
             $v = $this->value($field);
 
             if ($v === null && $this->isNullable($field)) continue;
 
-            if ($this->sizeOf($field, $v) > $max) {
-                $this->error($field, trim("Maximum {$max} " . $this->unitOf($field, $v)) . '.');
+            if (mb_strlen((string)$v) > $max) {
+                $this->error($field, "Maximum {$max} characters.");
             }
         }
         return $this;
-    }
-
-    public function between(string|array $fields, int|float $min, int|float $max): self
-    {
-        return $this->min($fields, $min)->max($fields, $max);
     }
 
     public function in(string|array $fields, array $allowed): self
