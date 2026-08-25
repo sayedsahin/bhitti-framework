@@ -216,6 +216,11 @@ final class Validator
         return $this;
     }
 
+    public function between(string|array $fields, int $min, int $max): self
+    {
+        return $this->min($fields, $min)->max($fields, $max);
+    }
+
     public function in(string|array $fields, array $allowed): self
     {
         foreach ($this->fields($fields) as $field) {
