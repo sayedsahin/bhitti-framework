@@ -17,5 +17,8 @@
         "ext-pdo": "*",
         "nikic/fast-route": "^1.3",
         "symfony/dotenv": "^7.4"
+    },
+    "suggest": {
+        "twig/twig": "Required only when using the optional twig() view helper."
     }
 }

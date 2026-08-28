@@ -8,6 +8,7 @@ use Bhitti\Config\Environment;
 use Bhitti\Database\DB;
 use Bhitti\Http\Request;
 use Bhitti\Http\Response;
+use Bhitti\View\Twig;
 use Bhitti\View\View;
 
 if (!function_exists('cache')) {
@@ -110,6 +111,15 @@ if (!function_exists('view')) {
     function view(string $view, array $data = []): string
     {
         return (new View())->render($view, $data);
+    }
+}
+
+if (!function_exists('twig')) {
+    function twig(string $view, array $data = []): string
+    {
+        static $twig;
+
+        return ($twig ??= new Twig())->render($view, $data);
     }
 }
 
