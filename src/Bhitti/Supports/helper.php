@@ -106,23 +106,6 @@ if (!function_exists('response')) {
 	}
 }
 
-
-if (!function_exists('view')) {
-    function view(string $view, array $data = []): string
-    {
-        return (new View())->render($view, $data);
-    }
-}
-
-if (!function_exists('twig')) {
-    function twig(string $view, array $data = []): string
-    {
-        static $twig;
-
-        return ($twig ??= new Twig())->render($view, $data);
-    }
-}
-
 if (!function_exists('e')) {
     function e(mixed $value): string
     {
