@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Bhitti\Http;
 
+use Bhitti\View\Twig;
+use Bhitti\View\View;
+
 class Response
 {
     protected int $status = 200;
@@ -32,6 +35,14 @@ class Response
         return $this;
     }
 
+    /**
+     * Set the HTTP status code.
+     *
+     * When chained with json(), html(), view(), or twig(),
+     * call status() after the renderer unless a status is passed
+     * directly to the renderer. Renderer methods default to 200
+     * and will overwrite a status set before them.
+     */
     public function status(int $status): static
     {
         $this->status = $status;
@@ -43,7 +54,7 @@ class Response
     {
         $this->content = json_encode($data, JSON_THROW_ON_ERROR);
         $this->status = $status;
-        $this->headers['Content-Type'] = 'application/json; charset=utf-8';
+        $this->headers['Content-Type'] ??= 'application/json; charset=utf-8';
 
         return $this;
     }
@@ -52,9 +63,19 @@ class Response
     {
         $this->content = $content;
         $this->status = $status;
-        $this->headers['Content-Type'] = 'text/html; charset=utf-8';
+        $this->headers['Content-Type'] ??= 'text/html; charset=utf-8';
 
         return $this;
+    }
+
+    public function view(string $view, array $data = [], int $status = 200): static
+    {
+        return $this->html((new View())->render($view, $data), $status);
+    }
+
+    public function twig(string $view, array $data = [], int $status = 200): static
+    {
+        return $this->html((new Twig())->render($view, $data), $status);
     }
 
     public function redirect(string $url = '', int $status = 302, array $headers = []): ResponseRedirect
