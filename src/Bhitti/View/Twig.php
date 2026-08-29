@@ -14,6 +14,10 @@ final class Twig
     {
         $view = trim($view);
 
+        if ($view === '' || str_contains($view, '..')) {
+            throw new RuntimeException("Invalid Twig view [{$view}].");
+        }
+
         $path = str_ends_with($view, '.twig')
             ? $view
             : str_replace('.', '/', $view) . '.html.twig';
@@ -48,7 +52,7 @@ final class Twig
         ));
 
         $engine->addFunction(new \Twig\TwigFunction(
-            'csrfField',
+            'csrf_field',
             fn (): string => '<input type="hidden" name="_csrf" value="'
             . e(csrf_token()) . '">',
             ['is_safe' => ['html']]
